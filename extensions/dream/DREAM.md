@@ -11,7 +11,8 @@ A dream is ordinary work: one branch, its answer, the user's decisions, ordinary
 is no session to track. Dream's actions, called with codemode `ultimate.action('dream', name, args)`: `prepare
 {chapter, learned, handoff}` and `stats` (tool numbers from the trace, no model). The trace keeps only about the last
 7 days, so `stats` and `ultimate.trace` see only that window, and `stats` counts only tool calls; older failures and
-model errors are found in conversation entries.
+model errors are found in conversation entries. `ultimate.trace` returns at most 1000 rows, so narrow it with `since`,
+`kinds` or `errors` rather than reading background polls.
 
 ## For @ultimate
 

@@ -551,6 +551,26 @@ it('keeps the newest rows within the cap, drops old ones, and records nothing wh
   capped.close()
 })
 
+it('filters a query by call kinds and failures', async () => {
+  const trace = callTrace(join(await temp(), 'trace.sqlite'))
+  trace.open()
+  trace.run(call('poll'), () => 0)
+  trace.run({ ...call('ls'), kind: 'tool' }, () => 0)
+  trace.run({ ...call('go'), kind: 'action' }, () => 0)
+  expect(() =>
+    trace.run({ ...call('bad'), kind: 'tool' }, () => {
+      throw new Error('no')
+    }),
+  ).toThrow('no')
+  const names = (query: Parameters<typeof trace.reader.query>[0]) =>
+    trace.reader.query(query).map((row) => row.name)
+  expect(names({ kinds: ['tool', 'action'] })).toEqual(['ls', 'go', 'bad'])
+  expect(names({ errors: true })).toEqual(['bad'])
+  expect(names({ kinds: ['service'], errors: true })).toEqual([])
+  expect(names({ kinds: [] })).toEqual(['poll', 'ls', 'go', 'bad'])
+  trace.close()
+})
+
 it('summarises values: secret keys redacted, long values cut, unserializable said so', () => {
   const text = summary({
     apiKey: 'k',

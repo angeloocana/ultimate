@@ -1,13 +1,13 @@
 import { parseEntryId } from '../../lib/ids.ts'
 import type { ConversationId } from '@earendil-works/pi-durable'
 import { parseConversationId } from '../../lib/ids.ts'
-import { arr, int, obj, opt, str, union } from '@earendil-works/pi-schema'
+import { arr, bool, int, obj, opt, str, union } from '@earendil-works/pi-schema'
 import { strEnum } from '../../lib/schema.ts'
 import { defineExtension, defineTool } from '@earendil-works/pi-durable'
 import { apiSource, apiSummaries } from '../../lib/api-files.ts'
 import { defineEvent } from '../../shared/events.ts'
 import type { ExtensionHost } from '../../server/extensions.ts'
-import type { CallRow, CallTree } from '../../server/trace.ts'
+import type { CallKind, CallRow, CallTree } from '../../server/trace.ts'
 import { readOnly } from '../../lib/replay.ts'
 
 const MAX_RETURNED_TEXT_CHARS = 16_000
@@ -65,6 +65,8 @@ export default function debug(host: ExtensionHost) {
     limit?: number
     trace?: string
     conversation?: ConversationId
+    kinds?: CallKind[]
+    errors?: boolean
     name?: string
   }) {
     const limit = args.limit ?? (args.call === 'events' ? 20 : 50)
@@ -138,6 +140,8 @@ export default function debug(host: ExtensionHost) {
           .query({
             ...(args.conversation === undefined ? {} : { conversation: args.conversation }),
             ...(args.since === undefined ? {} : { since: args.since }),
+            ...(args.kinds === undefined ? {} : { kinds: args.kinds }),
+            ...(args.errors === undefined ? {} : { errors: args.errors }),
             limit,
           })
           .toReversed()
@@ -179,7 +183,7 @@ export default function debug(host: ExtensionHost) {
           'call: `events` lists durable events newest first (filter `events` by name like `workspaces.landed`, `since` an event id); ' +
           '`reactors` shows each reactor with its cursor, lag (pending events), whether it runs, and its last failure; ' +
           '`catalogue` lists each extension API with its provider, needs and wants, plus missing providers and cycles; ' +
-          '`trace` lists recorded service, action, reactor, tool and model calls newest first (filter by `conversation` or ISO `since`), or with `trace` set the whole call tree of that trace id, indented; ' +
+          '`trace` lists recorded service, action, reactor, tool and model calls newest first (filter by `conversation`, ISO `since`, `kinds` or `errors`; background polls fill much of it, so narrow with `kinds` like tool, model, action, reactor), or with `trace` set the whole call tree of that trace id, indented; ' +
           "`apis` lists extension contracts (api.ts, refs.ts) with summaries and `api` returns one extension's by `name`, each file under a header. " +
           'Start from an event or a call, take its trace id and read the tree. Read-only; one line per row, ages relative; `limit` defaults to 20 events or 50 rows.',
         parameters: obj({
@@ -196,6 +200,12 @@ export default function debug(host: ExtensionHost) {
           ),
           trace: opt(str({ minLength: 1, description: 'trace: a trace id.' })),
           conversation: opt(int({ minimum: 1, description: 'trace: calls of this conversation.' })),
+          kinds: opt(
+            arr(strEnum(['service', 'action', 'reactor', 'tool', 'model']), {
+              description: 'trace: call kinds to keep.',
+            }),
+          ),
+          errors: opt(bool({ description: 'trace: failed calls only.' })),
           name: opt(str({ minLength: 1, description: 'api: extension name.' })),
           limit: opt(int({ minimum: 1, maximum: 1000 })),
         }),

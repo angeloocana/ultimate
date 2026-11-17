@@ -114,6 +114,13 @@ export function triggers(
     if (/^#[1-9]\d*$/.test(of)) return parseConversationId(Number(of.slice(1)))
     return undefined
   }
+  async function recorded(of: string): Promise<ConversationId | undefined> {
+    if (!STANDING.test(of)) return resolve(of)
+    const standing = await host
+      .harness()
+      .snapshot(Standing, ROOT_CONVERSATION_ID, BACKGROUND_CONTEXT)
+    return standing && Object.hasOwn(standing, of.slice(1)) ? standing[of.slice(1)] : undefined
+  }
   async function evaluate(tx: Tx, a: Automation, id?: ConversationId, measured?: ContextUsage) {
     if (!a.enabled || !a.condition || !id) return
     const usage = measured ?? (await tx.doc(ContextUsageDoc, id))
@@ -149,7 +156,7 @@ export function triggers(
     const state = await host.harness().snapshot(Automations, BACKGROUND_CONTEXT)
     for (const a of Object.values(state?.automations ?? {})) {
       if (closed || !a.enabled || !a.condition || (idle && !a.condition.idleFor)) continue
-      const target = await resolve(a.condition.of)
+      const target = await recorded(a.condition.of)
       if (!target || (changed && !changed.has(target))) continue
       await host.harness().commit(async (tx) => {
         const current = (await tx.doc(Automations)).automations[a.id]

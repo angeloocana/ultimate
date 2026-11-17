@@ -56,6 +56,8 @@ export interface TraceQuery {
   trace?: string
   conversation?: ConversationId
   since?: IsoTimestamp
+  kinds?: CallKind[]
+  errors?: boolean
   limit?: number
 }
 
@@ -392,15 +394,22 @@ CREATE INDEX IF NOT EXISTS calls_at ON calls (at);`
           ['trace', query.trace],
           ['conversation', query.conversation],
         ] as const
-        const where: { sql: string; value: string | number }[] = filters.flatMap(
-          ([column, value]) => (value === undefined ? [] : [{ sql: `${column} = ?`, value }]),
+        const where: { sql: string; values: (string | number)[] }[] = filters.flatMap(
+          ([column, value]) =>
+            value === undefined ? [] : [{ sql: `${column} = ?`, values: [value] }],
         )
-        if (since !== undefined) where.push({ sql: 'at > ?', value: since })
+        if (since !== undefined) where.push({ sql: 'at > ?', values: [since] })
+        if (query.kinds?.length)
+          where.push({
+            sql: `kind IN (${query.kinds.map(() => '?').join(', ')})`,
+            values: query.kinds,
+          })
+        if (query.errors) where.push({ sql: 'ok = 0', values: [] })
         const limit = Math.min(Math.max(1, Math.trunc(Number(query.limit) || 100)), 1000)
         return select(
           where.length ? 'WHERE ' + where.map((filter) => filter.sql).join(' AND ') : '',
           `at DESC, rowid DESC LIMIT ${limit}`,
-          ...where.map((filter) => filter.value),
+          ...where.flatMap((filter) => filter.values),
         ).toReversed()
       },
       page(query: {

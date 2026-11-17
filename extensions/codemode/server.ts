@@ -294,9 +294,9 @@ function globals(
     {
       name: 'trace',
       description:
-        'Recorded calls (service, action, reactor, tool, model): the newest `limit` (default 100, at most 1000), oldest first; filter by trace id, conversation or ISO `since`.',
+        "Recorded calls (service, action, reactor, tool, model): the newest `limit` (default 100, at most 1000), oldest first; filter by trace id, conversation, ISO `since`, `kinds` or `errors` (failed calls only). Background polls fill much of it: for tool numbers over the whole window use `ultimate.action('dream', 'stats')`, and narrow reads with `kinds: ['tool', 'model', 'action', 'reactor']`.",
       signature:
-        '(query?: { trace?: string; conversation?: number; since?: string; limit?: number; project?: string; machine?: string }): Promise<{ id: string; parent?: string; trace: string; at: string; ms: number; caller: string; callee: string; kind: string; name: string; ok: boolean; error?: string; args?: string; result?: string; conversation?: number; task?: number; entry?: number }[]>',
+        "(query?: { trace?: string; conversation?: number; since?: string; kinds?: ('service' | 'action' | 'reactor' | 'tool' | 'model')[]; errors?: boolean; limit?: number; project?: string; machine?: string }): Promise<{ id: string; parent?: string; trace: string; at: string; ms: number; caller: string; callee: string; kind: string; name: string; ok: boolean; error?: string; args?: string; result?: string; conversation?: number; task?: number; entry?: number }[]>",
       execute: read('trace', 0),
     },
     {

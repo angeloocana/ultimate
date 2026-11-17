@@ -112,6 +112,7 @@ async function fixture() {
   const settle = () => until(events.settled)
   const usage = (percent: number) =>
     opened.harness.commit(async (tx) => {
+      ;(await tx.doc(Standing, ROOT_CONVERSATION_ID)).ultimate ??= target
       Object.assign(await tx.doc(ContextUsageDoc, target), {
         percent,
         tokens: percent * 10000,
@@ -375,8 +376,12 @@ it('uses context hysteresis and cooldown and catches a missed crossing on open o
   vi.setSystemTime(Date.now() + 3600001)
   await f.usage(81)
   expect((await f.record(a.id)).fires).toBe(2)
+  // Checking reads @ultimate's recorded conversation; standing() would commit a refresh each idle tick.
+  const subagents = f.host.provided.get('subagents') as { standing: () => unknown }
+  const standing = vi.spyOn(subagents, 'standing')
   await f.opener()
   expect((await f.record(a.id)).fires).toBe(3)
+  expect(standing).not.toHaveBeenCalled()
   await f.opener()
   expect((await f.record(a.id)).fires).toBe(3)
 })
