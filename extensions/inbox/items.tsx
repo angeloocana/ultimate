@@ -40,11 +40,6 @@ export function selection(
 export const previewUrl = (text: string) =>
   /https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/[^\s)<>\]`*]*)?/.exec(text)?.[0]
 
-export function lead(text: string) {
-  const first = text.trimStart().split('\n', 1)[0] ?? ''
-  return /^\*\*(.+?)\*\*/.exec(first)?.[1] ?? first
-}
-
 export function answeredToday(messages: readonly Message[], now: number) {
   const midnight = new Date(now).setHours(0, 0, 0, 0)
   return messages

@@ -538,7 +538,6 @@ function PinnedQuestion({
     message.state === 'dismissed'
       ? 'dismissed · the asker knows'
       : 'answered · the asker has your answer'
-  const lead = message.text.split('\n').find((line) => line.trim()) ?? ''
   return (
     <section
       aria-label="The question"
@@ -553,7 +552,7 @@ function PinnedQuestion({
       >
         <MessageCircleQuestionIcon className="size-3.5 shrink-0 text-brand" />
         <span className="min-w-0 flex-1 truncate">
-          {waits ? <MarkdownPreview text={lead} /> : settled}
+          {waits ? <MarkdownPreview lead text={message.text} /> : settled}
         </span>
         {waits && folded && (
           <span className="shrink-0 text-brand">
@@ -669,7 +668,7 @@ function useQuestionSideStart({
         {asker?.title ? ` · ${asker.title}` : ''} asked you, and knows everything that led here:
       </p>
       <div className="mt-2 border-l-2 border-brand/50 pl-3 text-[13px] leading-relaxed text-muted-foreground [&_p]:my-1">
-        <MessageResponse>{message.text}</MessageResponse>
+        <MessageResponse mode="static">{message.text}</MessageResponse>
       </div>
       <p className="mt-3 font-mono text-[11px] text-muted-foreground/70">
         Ask why, what an option means, or say what to pick.

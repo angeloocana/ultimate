@@ -139,13 +139,21 @@ export function Address({
   )
 }
 
-export function Body({ text, pending }: { text: string; pending?: string }) {
+export function Body({
+  text,
+  pending,
+  streaming = false,
+}: {
+  text: string
+  pending?: string
+  streaming?: boolean
+}) {
   return (
     <div className="min-w-0 px-3 py-3 text-[13px] leading-relaxed">
       {pending && !text ? (
         <Shimmer as="p">{pending}</Shimmer>
       ) : (
-        <MessageResponse>{text}</MessageResponse>
+        <MessageResponse mode={streaming ? 'streaming' : 'static'}>{text}</MessageResponse>
       )}
     </div>
   )
@@ -252,6 +260,7 @@ export function Bubble({
         {text !== undefined && (
           <Body
             pending={bodyAlreadyShowsWriting ? 'Writing you a message…' : undefined}
+            streaming={running}
             text={text}
           />
         )}
@@ -499,6 +508,7 @@ export function MessageCall({ call, core }: { call: ToolCallView; core: ReactNod
         )}
         <Body
           pending={bodyAlreadyShowsWriting ? 'Writing a message…' : undefined}
+          streaming={call.status !== 'done'}
           text={text ?? ''}
         />
         {message && <Answers message={message} />}
@@ -591,7 +601,7 @@ export function BranchCall({ call, core }: { call: ToolCallView; core: ReactNode
             {message.error}
           </p>
         )}
-        <Body text={prompt ?? ''} />
+        <Body streaming={call.status !== 'done'} text={prompt ?? ''} />
       </Card>
     </Fold>
   )

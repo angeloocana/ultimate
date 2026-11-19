@@ -35,7 +35,7 @@ import { MessageQuestions } from '../questions/ui.tsx'
 import { UnderUltimate } from '../sidebar/ui.tsx'
 import { talkToUltimate } from '../subagents/ui.tsx'
 import { QuestionPane } from './ui.tsx'
-import { answeredToday, keyOf, lead, previewUrl, selection } from './items.tsx'
+import { answeredToday, keyOf, previewUrl, selection } from './items.tsx'
 import type { Entry } from './items.tsx'
 import { Waiting } from './ui.tsx'
 
@@ -131,7 +131,7 @@ function Row({
         </span>
       </span>
       <span className="truncate text-[13px] font-medium text-foreground">
-        {entry.item ? entry.item.title : <MarkdownPreview text={lead(entry.message.text)} />}
+        {entry.item ? entry.item.title : <MarkdownPreview lead text={entry.message.text} />}
       </span>
       {gist && (
         <span className="truncate text-[12px] text-muted-foreground">
@@ -346,10 +346,10 @@ function Zero({ messages, now }: { messages: readonly Message[]; now: number }) 
               >
                 <CheckIcon className="size-3 shrink-0 text-muted-foreground/70" />
                 <span className="max-w-44 shrink-0">
-                  <Asker id={message.from} />
+                  <Asker id={from} />
                 </span>
                 <span className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
-                  <MarkdownPreview text={lead(message.text)} />
+                  <MarkdownPreview lead text={message.text} />
                 </span>
                 <span className="shrink-0 font-mono text-[11px] text-muted-foreground/70">
                   {formatTime(at)}
@@ -425,7 +425,7 @@ function Surface({ items, messages }: { items: Entry[]; messages: readonly Messa
     if (phone) return undefined
     const openDialogMenuOrPickerOwnsKeys = () =>
       document.querySelector(
-        '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]',
+        '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], [data-streamdown="link-safety-modal"]',
       )
     const key = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null

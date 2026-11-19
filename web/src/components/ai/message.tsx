@@ -111,16 +111,28 @@ const components = { a: Link, inlineCode: InlineCode }
 const remarkPlugins = Object.values(defaultRemarkPlugins)
 const gfmBeforeMentionsKeepsUrlFragments = [...remarkPlugins, remarkMentions]
 const rehypePlugins = Object.values(defaultRehypePlugins)
-const noElements: string[] = []
+const firstBlockOnly = () => (tree: { children: { type: string }[] }) => {
+  tree.children = tree.children.filter((node) => node.type === 'element').slice(0, 1)
+}
+const leadPlugins = [...rehypePlugins, firstBlockOnly]
+const previewElements = ['img']
+const previewComponents = { img: ({ alt }: ComponentProps<'img'>) => <>{alt}</> }
 
-export const MarkdownPreview = memo(function MarkdownPreview({ text }: { text: string }) {
+export const MarkdownPreview = memo(function MarkdownPreview({
+  text,
+  lead = false,
+}: {
+  text: string
+  lead?: boolean
+}) {
   return (
     <Block
-      allowedElements={noElements}
+      allowedElements={previewElements}
+      components={previewComponents}
       content={text}
       index={0}
       isIncomplete={false}
-      rehypePlugins={rehypePlugins}
+      rehypePlugins={lead ? leadPlugins : rehypePlugins}
       remarkPlugins={remarkPlugins}
       shouldNormalizeHtmlIndentation={false}
       shouldParseIncompleteMarkdown={false}
@@ -174,6 +186,8 @@ export const MessageResponse = memo(
     )
   },
   (previous, next) =>
-    previous.children === next.children && previous.isAnimating === next.isAnimating,
+    previous.children === next.children &&
+    previous.isAnimating === next.isAnimating &&
+    previous.mode === next.mode,
 )
 MessageResponse.displayName = 'MessageResponse'

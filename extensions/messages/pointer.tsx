@@ -24,6 +24,9 @@ export const QuestionPointer = renderEntry(AskedEntry, function QuestionPointer(
       ? [transcriptOutcome.via ? 'dismissed for you' : 'dismissed', undefined]
       : [transcriptOutcome.via ? 'answered for you' : 'answered', transcriptOutcome.summary]
     : [undefined, summary]
+  const prefix = !transcriptOutcome
+    ? /^asks you(?: \d+ questions?)? · /.exec(text ?? '')?.[0]
+    : undefined
   return (
     <Card attention={open} data-message-pointer={id}>
       <header className="flex min-w-0 items-center gap-2 px-3 py-2 font-mono text-[11px] text-muted-foreground">
@@ -50,7 +53,8 @@ export const QuestionPointer = renderEntry(AskedEntry, function QuestionPointer(
           {state && <span className="shrink-0">{state}</span>}
           {text && (
             <span className="min-w-0 flex-1 truncate">
-              <MarkdownPreview text={text} />
+              {prefix}
+              <MarkdownPreview lead text={text.slice(prefix?.length ?? 0)} />
             </span>
           )}
           <span className="ml-auto flex shrink-0 items-center gap-1">

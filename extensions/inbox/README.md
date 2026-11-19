@@ -19,8 +19,8 @@ out behind its inline error card. Items are entries keyed by string; a question'
 ## Surface (`web.tsx`)
 
 - **List**: one row per item, the asking branch's feature chip and `#id` as the sidebar draws them, a `preview` tag
-  when the text links to a local preview (`http://127.0.0.1:…` or `localhost`), else `question`; the message's bold
-  lead or first line as its title, its first question as the gist, and how long it has waited, amber past an hour.
+  when the text links to a local preview (`http://127.0.0.1:…` or `localhost`), else `question`; the start of the
+  message as its title, its first question as the gist, and how long it has waited, amber past an hour.
   Titles and gists show Markdown as plain preview text; tapping the row opens the full message.
 - **Reading pane** for the selected item: the whole message in the transcript's Markdown renderer (including the
   first line and links), its forwarded images (`MessageImages`), **Open preview** (a new tab) when it links one,
