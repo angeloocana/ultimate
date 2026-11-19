@@ -20,7 +20,9 @@ checkout, `preview · …` on a preview; the full path on hover). Under them, wh
 `owner/repo` with GitHub's mark links to the repository, with a lock and `private` (or `public`) when `gh` could say
 (workspaces' `repo`). Clicking the name opens the root's History, the project's read-only tally. A chevron on the
 right folds the root's **Memory** row under it (folded by default, kept in `ext.conversations.projectOpen`); folded,
-a quiet brain and memory count beside the chevron opens Memory instead.
+a quiet brain and memory count beside the chevron opens Memory instead. Under the heading the block shows what the
+`sidebar.project-switch` point provides (`ui.tsx`): `projects` puts its phone picker there, a separate **Switch
+project** row, since its rail is hidden on a phone.
 
 The sidebar also stands beside lineage's Memory surface, so rows open conversations through `useShell` (`state.tsx`),
 which brings the Agent surface back; beside Memory no conversation row is highlighted, the Memory row (or the folded

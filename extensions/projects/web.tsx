@@ -1,74 +1,31 @@
-import { debounce, deadline, every } from '../../lib/timers.ts'
-import type { Cancel } from '../../lib/timers.ts'
+import { debounce } from '../../lib/timers.ts'
 import { PinIcon, PinOffIcon } from 'lucide-react'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   api,
   cn,
   defineWebExtension,
-  prettyName,
   keepLast,
+  provide,
   useAction,
   useExtensions,
   useViewport,
 } from '@/sdk'
-import { ProjectSwatch, RepoLabel, stemOf } from '../sidebar/ui.tsx'
-import { shownPort, target } from './links.ts'
-import { ListAction, PinAction } from './refs.ts'
+import { ProjectSwatch, ProjectSwitch, RepoLabel, stemOf } from '../sidebar/ui.tsx'
+import { shownPort } from './links.ts'
+import { OpeningBar, State, useProjectLink, useProjects, useVisiblePoll } from './list.tsx'
+import { PhoneSwitch } from './phone.tsx'
+import { PinAction } from './refs.ts'
 import type { RunningProject } from './refs.ts'
 
 const RAIL = 56
 const WIDE = 272
-const VISIBLE_PROJECTS_POLL_MS = 4_000
 const SHARED_PIN_POLL_MS = 30_000
-const NAVIGATION_EXPIRY_MS = 15_000
 const pixelAlignedAxis = 'relative flex h-full w-5 justify-center'
 const titleBarAlignedHeader = 'flex h-9 shrink-0 items-center border-b border-border/70'
 const statusLineAlignedFooter =
   'flex h-7 shrink-0 items-center border-t border-border/70 font-mono text-[10px] text-muted-foreground/70 md:pointer-coarse:box-content md:pointer-coarse:pb-3'
-
-let pendingNavigation: string | undefined
-let cancelNavigationExpiry: Cancel | undefined
-const listeners = new Set<() => void>()
-const setOpening = (url: string | undefined) => {
-  pendingNavigation = url
-  cancelNavigationExpiry?.()
-  if (url) cancelNavigationExpiry = deadline(NAVIGATION_EXPIRY_MS, () => setOpening(undefined))
-  for (const listener of listeners) listener()
-}
-const subscribe = (listener: () => void) => {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
-}
-const useOpening = () => useSyncExternalStore(subscribe, () => pendingNavigation)
-if (typeof window !== 'undefined') window.addEventListener('pageshow', () => setOpening(undefined))
-
-function OpeningBar() {
-  if (!useOpening()) return null
-  return (
-    <div
-      aria-hidden
-      className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5 animate-sweep bg-brand/30 bg-size-[300%_100%] bg-no-repeat bg-[linear-gradient(90deg,transparent_30%,var(--color-brand)_50%,transparent_70%)]"
-    />
-  )
-}
-
-function useVisiblePoll(refetch: () => Promise<unknown>, interval: number, off = false) {
-  useEffect(() => {
-    if (off) return undefined
-    const visible = () => {
-      if (document.visibilityState !== 'visible') return
-      void refetch()
-    }
-    const stopPolling = every(interval, visible)
-    document.addEventListener('visibilitychange', visible)
-    return () => {
-      stopPolling()
-      document.removeEventListener('visibilitychange', visible)
-    }
-  }, [refetch, interval, off])
-}
 
 function useSharedPin(off: boolean) {
   const shared = useAction(PinAction, {}, { onError: keepLast, enabled: !off })
@@ -95,17 +52,6 @@ function Detail({ project, pending }: { project: RunningProject; pending: boolea
   )
 }
 
-function State({ busy, questions }: { busy: boolean; questions: number }) {
-  if (questions > 0)
-    return (
-      <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-amber-400/15 px-1.5 font-mono text-[10px] font-semibold text-amber-700 tabular-nums ring-1 ring-amber-500/30 ring-inset dark:text-amber-300">
-        {questions}
-      </span>
-    )
-  if (busy) return <span className="size-1.5 shrink-0 animate-pulse-dot rounded-full bg-brand" />
-  return null
-}
-
 function Row({
   project,
   wide,
@@ -119,50 +65,16 @@ function Row({
   last: boolean
   family: readonly string[]
 }) {
-  const here = project.current
-  const pending = useOpening() === project.url
-  const busy = (project.busy ?? 0) > 0
-  const questions = project.questions ?? 0
-  const name = prettyName(project.name)
-  const href = here ? undefined : target(project, location)
-  const unreachable = !here && !href
-  const title = [
-    name,
-    project.repo?.name,
-    shownPort(project, location),
-    unreachable && 'not on the tailnet',
-    questions && `${questions} for you`,
-    busy && 'working',
-    here && 'this tab',
-    pending && 'opening',
-  ]
-    .filter(Boolean)
-    .join(' · ')
+  const { name, here, unreachable, pending, busy, questions, anchor } = useProjectLink(project)
   return (
     <a
-      aria-current={here ? 'page' : undefined}
-      aria-label={title}
+      {...anchor}
       className={cn(
         'group relative mx-1.5 flex h-10 items-center rounded-lg text-left outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset',
         here || unreachable ? 'cursor-default' : 'cursor-pointer',
         unreachable && 'opacity-45',
         wide && (here ? 'bg-sidebar-accent' : 'hover:bg-sidebar-accent/50'),
       )}
-      data-project={project.name}
-      href={href}
-      onClick={(event) => {
-        const skipsTabNavigation =
-          here ||
-          unreachable ||
-          event.button !== 0 ||
-          event.metaKey ||
-          event.ctrlKey ||
-          event.shiftKey ||
-          event.altKey
-        if (skipsTabNavigation) return
-        setOpening(project.url)
-      }}
-      title={title}
     >
       <span
         className={cn(
@@ -248,24 +160,19 @@ function Rail() {
   const railOccupied = useExtensions().some(
     (record) => record.name !== 'projects' && record.extension?.slots?.['shell.rail'],
   )
-  const list = useAction(ListAction, null, {
-    onError: keepLast,
-    enabled: !railOccupied,
+  const phone = viewport === 'phone'
+  const { projects, loading, family, questions, working } = useProjects({
+    enabled: !railOccupied && !phone,
+    polling: true,
   })
-  useVisiblePoll(list.refetch, VISIBLE_PROJECTS_POLL_MS, railOccupied)
   const [hover, setHover] = useState(false)
-  const [pinned, setPinned] = useSharedPin(railOccupied)
+  const [pinned, setPinned] = useSharedPin(railOccupied || phone)
   const [showHover] = useState(() => debounce(150, () => setHover(true)))
   useEffect(() => showHover.cancel, [showHover])
-  const projects = list.data ?? []
-  const loading = !list.data && !list.error
   const loadedAfterMount = useRef(loading).current
-  if (railOccupied || viewport === 'phone' || (!loading && projects.length < 2)) return null
+  if (railOccupied || phone || (!loading && projects.length < 2)) return null
 
   const wide = hover || pinned
-  const family = projects.map((project) => project.name)
-  const questions = projects.reduce((sum, project) => sum + (project.questions ?? 0), 0)
-  const working = projects.filter((project) => (project.busy ?? 0) > 0).length
 
   return (
     <div className="relative shrink-0" style={{ width: pinned ? WIDE : RAIL }}>
@@ -345,6 +252,11 @@ function Rail() {
   )
 }
 
+function useProjectSwitch(overlaidOnPhone: boolean) {
+  return useViewport() === 'phone' ? <PhoneSwitch shown={overlaidOnPhone} /> : null
+}
+
 export default defineWebExtension({
   slots: { 'shell.rail': Rail, overlay: OpeningBar },
+  provides: [provide(ProjectSwitch, useProjectSwitch)],
 })

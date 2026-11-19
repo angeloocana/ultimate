@@ -1,13 +1,14 @@
 import type { ConversationId } from '@earendil-works/pi-durable'
 import { BrainIcon, ChevronRightIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { cn, formatTokens, projectHeading, useSystem } from '@/sdk'
+import { cn, formatTokens, projectHeading, Provided, useSystem } from '@/sdk'
 import { MEMORY_SURFACE, useOpenMemory } from '../lineage/ui.tsx'
 import { useProjectRepo } from '../workspaces/ui.tsx'
 import type { GithubRepo } from '../workspaces/refs.ts'
 import { useMemorySummary } from './root.tsx'
-import { useShell, useSidebarState } from './state.tsx'
+import { useShell, useShownOnPhone, useSidebarState } from './state.tsx'
 import { ProjectSwatch, RepoLabel } from './tile.tsx'
+import { ProjectSwitch } from './ui.tsx'
 
 function Repo({ repo }: { repo: GithubRepo }) {
   return (
@@ -43,6 +44,7 @@ export function Project({
   const heading = projectHeading(system)
   const repo = useProjectRepo()
   const [open, setOpen] = useSidebarState('projectOpen', false)
+  const overlaidOnPhone = useShownOnPhone()
   const name = (
     <>
       <ProjectSwatch className="h-8 w-1 rounded-full" folder={heading?.folder ?? ''} />
@@ -100,6 +102,9 @@ export function Project({
           <Repo repo={repo} />
         </div>
       )}
+      <Provided input={overlaidOnPhone} point={ProjectSwitch}>
+        {(control) => control}
+      </Provided>
       {(open || root === undefined) && <div className="mt-1.5">{children}</div>}
     </div>
   )

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { onLoopback, shownPort, target } from '../links.ts'
+import { destination, onLoopback, shownPort, target } from '../links.ts'
 import type { RunningProject } from '../refs.ts'
 
 const published: RunningProject = {
@@ -32,4 +32,13 @@ it('goes to the page’s own host on the Tailscale port from a tailnet page, and
   expect(target(published, tailnet)).toBe('https://my-machine.tail1234.ts.net:4752/')
   expect(target(unpublished, tailnet)).toBeUndefined()
   expect([shownPort(published, tailnet), shownPort(unpublished, tailnet)]).toEqual([':4752', '—'])
+})
+
+it('gives a picker row a link only when it leads elsewhere, else the reason it does not', () => {
+  expect(destination(published, tailnet)).toEqual({
+    href: 'https://my-machine.tail1234.ts.net:4752/',
+  })
+  expect(destination(unpublished, tailnet)).toEqual({ reason: 'not on the tailnet' })
+  expect(destination(unpublished, loopback)).toEqual({ href: 'http://127.0.0.1:4750/' })
+  expect(destination({ ...published, current: true }, tailnet)).toEqual({ reason: 'this tab' })
 })
