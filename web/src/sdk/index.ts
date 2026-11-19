@@ -119,6 +119,7 @@ export {
   useNotices,
   useNow,
   usePanels,
+  useRegionOpen,
   useRestart,
   useReady,
   useStore,

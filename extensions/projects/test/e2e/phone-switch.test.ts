@@ -6,7 +6,7 @@ import { chromium } from 'playwright-core'
 import type { Page } from 'playwright-core'
 import { afterEach, expect, it } from 'vitest'
 import { browserBinary } from '../../../browser/server.ts'
-import { fauxServer, removeTemp, temp, until } from '../../../../test/helpers.ts'
+import { fauxServer, removeTemp, temp } from '../../../../test/helpers.ts'
 
 const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => {
@@ -41,21 +41,32 @@ async function setup() {
   })
   cleanup.push(() => browser.close())
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true })
-  const lists: number[] = []
+  let lists = 0
   page.on('request', (request) => {
-    if (request.url().endsWith('/extensions/projects/actions/list')) lists.push(Date.now())
+    if (request.url().endsWith('/extensions/projects/actions/list')) lists++
   })
+  await page.clock.install()
   await page.goto(`${server.url}/?conversation=1`)
   await page.locator('button[aria-label="Toggle sidebar"]').waitFor()
-  return { page, lists, startOther, stopOther }
+  return { page, lists: () => lists, startOther, stopOther }
+}
+
+async function listsAfter(page: Page, ms: number, lists: () => number) {
+  const before = lists()
+  await page.clock.runFor(ms)
+  await page.evaluate(() => fetch('/api/system'))
+  return lists() - before
 }
 
 const toggleSidebar = (page: Page) => page.locator('button[aria-label="Toggle sidebar"]').click()
+const sidebarProjectBlock = (page: Page) => page.locator('aside [aria-label="Project"]')
 async function closeSidebar(page: Page) {
   await page.mouse.click(380, 400)
-  await until(async () => (await page.locator('[inert] aside').count()) > 0)
+  await page
+    .locator('[inert]')
+    .filter({ has: sidebarProjectBlock(page) })
+    .waitFor({ state: 'attached' })
 }
-const sidebarProjectBlock = (page: Page) => page.locator('aside [aria-label="Project"]')
 
 it('reads the running projects again each time the phone sidebar opens', async () => {
   const { page, startOther } = await setup()
@@ -65,11 +76,12 @@ it('reads the running projects again each time the phone sidebar opens', async (
   await toggleSidebar(page)
   await sidebarProjectBlock(page).waitFor()
   await listed
-  expect(await page.locator('[data-project-switch]').count()).toBe(0)
+  await page.locator('[data-project-switch]').waitFor({ state: 'detached' })
   await closeSidebar(page)
   await startOther()
   await toggleSidebar(page)
   await page.locator('[data-project-switch]').waitFor()
+  expect(await page.locator('[data-project-switch]').textContent()).toContain('Switch project')
 })
 
 it('stops polling when the phone sidebar closes with the picker unfolded', async () => {
@@ -78,8 +90,8 @@ it('stops polling when the phone sidebar closes with the picker unfolded', async
   await toggleSidebar(page)
   await page.locator('[data-project-switch]').click()
   await page.locator('#project-switch-list a').nth(1).waitFor()
+  expect(await listsAfter(page, 4_500, lists)).toBeGreaterThan(0)
   await closeSidebar(page)
-  const closedAt = Date.now()
-  await page.waitForTimeout(9_000)
-  expect(lists.filter((at) => at > closedAt + 500)).toEqual([])
+  await page.clock.runFor(500)
+  expect(await listsAfter(page, 9_000, lists)).toBe(0)
 })
