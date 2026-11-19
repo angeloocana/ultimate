@@ -20,5 +20,10 @@ export const Unlisted = definePoint<ConversationId | undefined, ReadonlySet<numb
 )
 /** Whether a preview started by this conversation is running, provided by `instance`. */
 export const PreviewUp = definePoint<ConversationId | undefined, boolean>('sidebar.preview-up')
+/**
+ * What the project block shows under its heading for moving to another running project, provided by `projects` on a
+ * phone, where its rail is hidden; nothing while nothing provides it.
+ */
+export const ProjectSwitch = definePoint<null, ReactNode>('sidebar.project-switch')
 
 export { colourOf, GithubMark, ProjectSwatch, RepoLabel, stemOf } from './tile.tsx'

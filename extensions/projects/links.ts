@@ -14,5 +14,11 @@ export function target(project: RunningProject, page: Page) {
     : undefined
 }
 
+export function destination(project: RunningProject, page: Page) {
+  if (project.current) return { reason: 'this tab' } as const
+  const href = target(project, page)
+  return href ? ({ href } as const) : ({ reason: 'not on the tailnet' } as const)
+}
+
 export const shownPort = (project: RunningProject, page: Page) =>
   onLoopback(page) ? `:${port(project.url)}` : project.tailnetPort ? `:${project.tailnetPort}` : '—'
