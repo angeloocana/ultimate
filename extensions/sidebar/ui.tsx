@@ -22,8 +22,9 @@ export const Unlisted = definePoint<ConversationId | undefined, ReadonlySet<numb
 export const PreviewUp = definePoint<ConversationId | undefined, boolean>('sidebar.preview-up')
 /**
  * What the project block shows under its heading for moving to another running project, provided by `projects` on a
- * phone, where its rail is hidden; nothing while nothing provides it.
+ * phone, where its rail is hidden; nothing while nothing provides it. Input is whether the sidebar is open as the
+ * phone's overlay, which keeps its content mounted while closed: false on a closed phone sidebar and beyond a phone.
  */
-export const ProjectSwitch = definePoint<null, ReactNode>('sidebar.project-switch')
+export const ProjectSwitch = definePoint<boolean, ReactNode>('sidebar.project-switch')
 
 export { colourOf, GithubMark, ProjectSwatch, RepoLabel, stemOf } from './tile.tsx'

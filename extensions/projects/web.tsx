@@ -252,8 +252,8 @@ function Rail() {
   )
 }
 
-function useProjectSwitch() {
-  return useViewport() === 'phone' ? <PhoneSwitch /> : null
+function useProjectSwitch(overlaidOnPhone: boolean) {
+  return useViewport() === 'phone' ? <PhoneSwitch shown={overlaidOnPhone} /> : null
 }
 
 export default defineWebExtension({

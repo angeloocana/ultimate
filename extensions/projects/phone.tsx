@@ -1,5 +1,5 @@
 import { ArrowLeftRightIcon, ChevronRightIcon } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { cn } from '@/sdk'
 import { ProjectSwatch, RepoLabel } from '../sidebar/ui.tsx'
 import { shownPort } from './links.ts'
@@ -51,12 +51,15 @@ function Choice({ project, family }: { project: RunningProject; family: readonly
   )
 }
 
-export function PhoneSwitch() {
+export function PhoneSwitch({ shown }: { shown: boolean }) {
   const [open, setOpen] = useState(false)
-  const { projects, loading, failed, family } = useProjects({
-    enabled: true,
+  const { projects, loading, failed, family, refetch } = useProjects({
+    enabled: shown,
     polling: open,
   })
+  useEffect(() => {
+    if (shown) void refetch()
+  }, [shown, refetch])
   if (!loading && !failed && projects.length < 2) return null
   const waiting = projects
     .filter((project) => !project.current)
@@ -64,7 +67,7 @@ export function PhoneSwitch() {
   return (
     <div className="mx-2 mt-1.5">
       <button
-        aria-controls="project-switch-list"
+        aria-controls={open ? 'project-switch-list' : undefined}
         aria-expanded={open}
         className="flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-md pr-2 pl-2.5 text-left text-[13px] text-foreground/85 outline-none active:bg-sidebar-accent/70 focus-visible:ring-1 focus-visible:ring-ring"
         data-project-switch

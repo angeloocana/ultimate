@@ -1,11 +1,17 @@
 import type { ConversationId } from '@earendil-works/pi-durable'
-import { useUltimate, useUiState } from '@/sdk'
+import { useStore, useUltimate, useUiState, useViewport } from '@/sdk'
 import type { JsonValue } from '@/sdk'
 
 export const useSidebarState = <T extends JsonValue>(
   persistedConversationsKey: string,
   initial: T,
 ) => useUiState<T>(`ext.conversations.${persistedConversationsKey}`, initial)
+
+export function useShownOnPhone() {
+  const phone = useViewport() === 'phone'
+  const overlaid = useStore((state) => state.ui.open?.phone?.sidebar ?? false)
+  return phone && overlaid
+}
 
 export function useShell() {
   const actions = useUltimate()

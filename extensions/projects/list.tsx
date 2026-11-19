@@ -60,6 +60,7 @@ export function useProjects({ enabled, polling }: { enabled: boolean; polling: b
     projects,
     loading: !list.data && !list.error,
     failed: !list.data && list.error !== undefined,
+    refetch: list.refetch,
     family: projects.map((project) => project.name),
     questions: projects.reduce((sum, project) => sum + (project.questions ?? 0), 0),
     working: projects.filter((project) => (project.busy ?? 0) > 0).length,
