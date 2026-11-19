@@ -21,8 +21,10 @@ out behind its inline error card. Items are entries keyed by string; a question'
 - **List**: one row per item, the asking branch's feature chip and `#id` as the sidebar draws them, a `preview` tag
   when the text links to a local preview (`http://127.0.0.1:…` or `localhost`), else `question`; the message's bold
   lead or first line as its title, its first question as the gist, and how long it has waited, amber past an hour.
-- **Reading pane** for the selected item: the title, the rest of the text (messages' `Body`), its forwarded images
-  (`MessageImages`), **Open preview** (a new tab) when it links one, **Open in branch #id** (messages'
+  Titles and gists show Markdown as plain preview text; tapping the row opens the full message.
+- **Reading pane** for the selected item: the whole message in the transcript's Markdown renderer (including the
+  first line and links), its forwarded images (`MessageImages`), **Open preview** (a new tab) when it links one,
+  **Open in branch #id** (messages'
   `messages:open {conversation, message}`), and the answer card itself (questions' `MessageQuestions`). An extension
   providing `QuestionPane` (`ui.tsx`) may take a question's pane over: side-chat shows the question's side chat there
   while it is in front. When the shown
@@ -31,7 +33,8 @@ out behind its inline error card. Items are entries keyed by string; a question'
   and the card's own keys (1–9, letters, ↵, ⇧↵) answer the shown item: the Inbox passes `keys` to the card. A
   branch's transcript keeps its own rule (`keyCard`) when the Inbox is not on screen.
 - **Phone**: the list full width; a tap shows the item full screen with a back arrow, the answer card after the text.
-- **Zero**: "Nothing waits on you", the questions answered or dismissed today, and **Back to @ultimate**.
+- **Zero**: "Nothing waits on you", the questions answered or dismissed today (tap to open in the transcript),
+  and **Back to @ultimate**.
 
 `?inbox=<key>` on load opens the surface at that entry and leaves the address; the `inbox:open {key}` event does the
 same at runtime (a push notification's tap, `extensions/push`). A plain number, in either or as

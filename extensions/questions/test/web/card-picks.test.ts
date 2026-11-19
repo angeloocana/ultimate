@@ -20,6 +20,7 @@ vi.mock('@/sdk', () => ({
 // Messages' UI and Markdown pull the running app in; the card needs neither to answer.
 vi.mock('../../../messages/ui.tsx', () => ({ MessagesDoc: { kind: 'board' } }))
 vi.mock('@/components/ai/message', () => ({
+  MarkdownPreview: ({ text }: { text: string }) => text,
   MessageResponse: ({ children }: { children?: ReactNode }) => createElement('div', null, children),
 }))
 

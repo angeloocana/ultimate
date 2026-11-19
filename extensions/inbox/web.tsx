@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { MarkdownPreview, MessageResponse } from '@/components/ai/message'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import {
@@ -28,7 +29,7 @@ import {
   useViewport,
 } from '@/sdk'
 import { FeatureTag, useOverview, useStandingName } from '../conversations/ui.tsx'
-import { Body, MessageExtras, MessageImages, stateTone } from '../messages/ui.tsx'
+import { MessageExtras, MessageImages, stateTone } from '../messages/ui.tsx'
 import type { Message } from '../messages/refs.ts'
 import { MessageQuestions } from '../questions/ui.tsx'
 import { UnderUltimate } from '../sidebar/ui.tsx'
@@ -87,8 +88,6 @@ const KindTag = ({ entry }: { entry: Entry }) => (
   </span>
 )
 
-const titleOf = (entry: Entry) => (entry.item ? entry.item.title : lead(entry.message.text).title)
-
 function From({ entry }: { entry: Entry }) {
   if (entry.message) return <Asker id={entry.message.from} />
   return entry.item.conversation === undefined ? null : <Asker id={entry.item.conversation} />
@@ -131,10 +130,12 @@ function Row({
           <Waited at={entry.at} now={now} />
         </span>
       </span>
-      <span className="truncate text-[13px] font-medium text-foreground">{titleOf(entry)}</span>
+      <span className="truncate text-[13px] font-medium text-foreground">
+        {entry.item ? entry.item.title : <MarkdownPreview text={lead(entry.message.text)} />}
+      </span>
       {gist && (
         <span className="truncate text-[12px] text-muted-foreground">
-          {gist}
+          {entry.item ? gist : <MarkdownPreview text={gist} />}
           {more && <span className="font-mono text-[11px]">{more}</span>}
         </span>
       )}
@@ -222,7 +223,6 @@ function Reading({
 }) {
   const openBranch = useOpenBranch()
   const item = entry.message
-  const { body } = item ? lead(item.text) : { body: '' }
   const preview = item && previewUrl(item.text)
   const conversation = conversationOf(entry)
   const top = (
@@ -235,13 +235,14 @@ function Reading({
           waited <Waited at={entry.at} now={now} />
         </span>
       </header>
-      <h2 className="mt-3 text-[17px] leading-7 font-semibold tracking-[-0.01em]">
-        {titleOf(entry)}
-      </h2>
-      {body && (
-        <div className="mt-1 [&>div]:px-0 [&>div]:py-0 [&>div]:text-[15px] [&>div]:leading-6">
-          <Body text={body} />
-        </div>
+      {item ? (
+        <MessageResponse className="mt-3 text-[15px] leading-6" mode="static">
+          {item.text}
+        </MessageResponse>
+      ) : (
+        <h2 className="mt-3 text-[17px] leading-7 font-semibold tracking-[-0.01em]">
+          {entry.item.title}
+        </h2>
       )}
       {item?.images && typeof item.from === 'number' && (
         <div className="mt-4 overflow-hidden rounded-lg border border-border/70 bg-card/60 [&>div]:border-t-0">
@@ -330,19 +331,31 @@ function Zero({ messages, now }: { messages: readonly Message[]; now: number }) 
         {today.length > 0 && (
           <div className="mt-10 w-full text-left">
             <div className="section-label px-1 pb-2">Answered today · {today.length}</div>
-            {today.map(({ message, at }) => (
-              <div className="flex min-w-0 items-center gap-2 px-1 py-1.5" key={message.id}>
+            {today.map(({ message, from, at }) => (
+              <button
+                className="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-left hover:bg-accent/40"
+                key={message.id}
+                onClick={() => {
+                  if (message.call)
+                    events.emit('messages:open', { conversation: from, call: message.call })
+                  actions.showSurface('agent')
+                  actions.switchConversation(from)
+                }}
+                title="Open in transcript"
+                type="button"
+              >
                 <CheckIcon className="size-3 shrink-0 text-muted-foreground/70" />
                 <span className="max-w-44 shrink-0">
                   <Asker id={message.from} />
                 </span>
                 <span className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
-                  {lead(message.text).title}
+                  <MarkdownPreview text={lead(message.text)} />
                 </span>
                 <span className="shrink-0 font-mono text-[11px] text-muted-foreground/70">
                   {formatTime(at)}
                 </span>
-              </div>
+                <ChevronRightIcon className="size-3 shrink-0" />
+              </button>
             ))}
           </div>
         )}

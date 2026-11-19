@@ -1,5 +1,6 @@
 import { ROOT } from '@/sdk'
 import { MessageCircleQuestionIcon, SquareArrowOutUpRightIcon } from 'lucide-react'
+import { MarkdownPreview } from '@/components/ai/message'
 import { Card, cn, events, renderEntry, useConversation, useDocOf, useUltimate } from '@/sdk'
 import { Address, useAccentOf } from './cards.tsx'
 import { MessagesDoc } from './refs.ts'
@@ -47,7 +48,11 @@ export const QuestionPointer = renderEntry(AskedEntry, function QuestionPointer(
           type="button"
         >
           {state && <span className="shrink-0">{state}</span>}
-          {text && <span className="min-w-0 flex-1 truncate">{text}</span>}
+          {text && (
+            <span className="min-w-0 flex-1 truncate">
+              <MarkdownPreview text={text} />
+            </span>
+          )}
           <span className="ml-auto flex shrink-0 items-center gap-1">
             <SquareArrowOutUpRightIcon className="size-3" />
             Open

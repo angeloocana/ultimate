@@ -41,17 +41,8 @@ export const previewUrl = (text: string) =>
   /https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/[^\s)<>\]`*]*)?/.exec(text)?.[0]
 
 export function lead(text: string) {
-  const trimmed = text.trimStart()
-  const bold = /^\*\*(.+?)\*\*[:.]?\s*/.exec(trimmed)
-  if (bold) return { title: bold[1].trim(), body: trimmed.slice(bold[0].length) }
-  const [first = '', ...rest] = trimmed.split('\n')
-  return {
-    title: first
-      .replace(/^[#>\-*\s]+/, '')
-      .replace(/[*_`]/g, '')
-      .trim(),
-    body: rest.join('\n').trim(),
-  }
+  const first = text.trimStart().split('\n', 1)[0] ?? ''
+  return /^\*\*(.+?)\*\*/.exec(first)?.[1] ?? first
 }
 
 export function answeredToday(messages: readonly Message[], now: number) {
@@ -59,8 +50,9 @@ export function answeredToday(messages: readonly Message[], now: number) {
   return messages
     .filter((m) => m.to === 'user' && (m.state === 'answered' || m.state === 'dismissed'))
     .flatMap((m) => {
+      if (typeof m.from !== 'number') return []
       const reply = messages.find((r) => r.from === 'user' && r.re === m.id)
-      return reply && reply.at >= midnight ? [{ message: m, at: reply.at }] : []
+      return reply && reply.at >= midnight ? [{ message: m, from: m.from, at: reply.at }] : []
     })
     .toSorted((a, b) => b.at - a.at)
 }

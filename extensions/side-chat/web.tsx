@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
-import { MessageResponse } from '@/components/ai/message'
+import { MarkdownPreview, MessageResponse } from '@/components/ai/message'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
 import {
@@ -41,7 +41,7 @@ import {
 import type { ComposerTarget } from '@/sdk'
 import { StandingDoc, talkToUltimate } from '../subagents/ui.tsx'
 import { UnderUltimate, Unlisted } from '../sidebar/ui.tsx'
-import { MessagesDoc } from '../messages/ui.tsx'
+import { Body, MessagesDoc } from '../messages/ui.tsx'
 import {
   answered,
   CardActions,
@@ -553,7 +553,7 @@ function PinnedQuestion({
       >
         <MessageCircleQuestionIcon className="size-3.5 shrink-0 text-brand" />
         <span className="min-w-0 flex-1 truncate">
-          {waits ? lead.replace(/\*\*/g, '') : settled}
+          {waits ? <MarkdownPreview text={lead} /> : settled}
         </span>
         {waits && folded && (
           <span className="shrink-0 text-brand">
@@ -568,6 +568,7 @@ function PinnedQuestion({
       </button>
       {!folded && waits && (
         <div className="min-h-0 overflow-y-auto">
+          <Body text={message.text} />
           <MessageQuestions
             answerWith={answerWith}
             keys={keys}

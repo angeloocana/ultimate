@@ -19,11 +19,17 @@ afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close()
 })
 
-const body = Array.from(
-  { length: 8 },
-  (_, index) =>
-    `## Section ${index + 1}\n\n${'It weighs both ways and the numbers move. '.repeat(10)}\n`,
-).join('\n')
+const gallery = 'https://example.com/gallery'
+const preview = 'https://preview.example.com:8445/before_and_after/gallery'
+const notes = 'https://example.com/notes'
+const body = [
+  `[Open the gallery](${gallery})\n\nAlternate preview: ${preview}\n`,
+  ...Array.from(
+    { length: 8 },
+    (_, index) =>
+      `## Section ${index + 1}\n\n${'It weighs both ways and the numbers move. '.repeat(10)}\n`,
+  ),
+].join('\n')
 
 /** How much taller than the window the document is, and whether the reading pane itself scrolls. */
 const layout = (page: Page) =>
@@ -61,7 +67,7 @@ async function setup() {
             to: 'user',
             text: `${body}Five decisions before I go on.`,
             questions: Array.from({ length: 5 }, (_, index) => ({
-              text: `Decision ${index + 1}: where should it sit, and how should it move?`,
+              text: `Decision ${index + 1}: where should it sit after reading the [notes](${notes})?`,
               kind: 'choice' as const,
               ref: String(index + 1),
               options: [
@@ -126,4 +132,30 @@ it('scrolls the reading pane inside the window, never the page', async () => {
     expect(beyond).toBeLessThanOrEqual(0)
     await page.close()
   }
+})
+
+it('opens links from the message lead, body and question after tapping the phone Inbox row', async () => {
+  const { server, browser, message } = await setup()
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true })
+  await page.goto(`${server.url}/?conversation=1&inbox`)
+  const row = page.locator(`[data-inbox-row="${message}"]`)
+  expect(await row.textContent()).toContain('Open the gallery')
+  expect(await row.textContent()).toContain('after reading the notes?')
+  expect(await row.textContent()).not.toContain('https://')
+  expect(await row.locator('a, button').count()).toBe(0)
+  await row.tap()
+  const item = page.locator(`[data-inbox-item="${message}"]`)
+  for (const [label, url] of [
+    ['Open the gallery', gallery],
+    [preview, preview],
+    ['notes', notes],
+  ]) {
+    await item.getByRole('button', { name: label, exact: true }).tap()
+    const confirm = page.locator('[data-streamdown="link-safety-modal"]')
+    await confirm.waitFor()
+    expect(await confirm.textContent()).toContain(url)
+    await page.keyboard.press('Escape')
+    await confirm.waitFor({ state: 'hidden' })
+  }
+  await page.close()
 })

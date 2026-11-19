@@ -522,7 +522,7 @@ function Card({
         event.metaKey ||
         event.ctrlKey ||
         event.altKey ||
-        target?.closest('input, textarea, select, [contenteditable="true"]') ||
+        target?.closest('input, textarea, select, [contenteditable="true"], .markdown') ||
         outsideControlOwnsKeys(target)
       )
         return

@@ -2,9 +2,11 @@ import { cn } from 'cn'
 import type { ComponentProps, HTMLAttributes, ReactNode } from 'react'
 import { memo, useMemo } from 'react'
 import {
+  Block,
   CodeBlock,
   CodeBlockCopyButton,
   defaultComponents,
+  defaultRehypePlugins,
   defaultRemarkPlugins,
   Streamdown,
 } from 'streamdown'
@@ -106,7 +108,26 @@ function InlineCode(props: ComponentProps<'code'> & ExtraProps) {
 }
 
 const components = { a: Link, inlineCode: InlineCode }
-const gfmBeforeMentionsKeepsUrlFragments = [...Object.values(defaultRemarkPlugins), remarkMentions]
+const remarkPlugins = Object.values(defaultRemarkPlugins)
+const gfmBeforeMentionsKeepsUrlFragments = [...remarkPlugins, remarkMentions]
+const rehypePlugins = Object.values(defaultRehypePlugins)
+const noElements: string[] = []
+
+export const MarkdownPreview = memo(function MarkdownPreview({ text }: { text: string }) {
+  return (
+    <Block
+      allowedElements={noElements}
+      content={text}
+      index={0}
+      isIncomplete={false}
+      rehypePlugins={rehypePlugins}
+      remarkPlugins={remarkPlugins}
+      shouldNormalizeHtmlIndentation={false}
+      shouldParseIncompleteMarkdown={false}
+      unwrapDisallowed
+    />
+  )
+})
 
 function ExtensionCodeBlock({ code, language, isIncomplete }: CustomRendererProps) {
   const renderers = codeBlockRenderers(useExtensions(), language)

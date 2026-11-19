@@ -1,7 +1,7 @@
 import { CheckIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, ReactNode } from 'react'
-import { MessageResponse } from '@/components/ai/message'
+import { MarkdownPreview, MessageResponse } from '@/components/ai/message'
 import { cn } from '@/sdk'
 import type { Question } from '../messages/refs.ts'
 import { answerOf, choices, keyOf, position } from './state.tsx'
@@ -263,6 +263,7 @@ export function QuestionItem({
       })}
     </div>
   )
+  const Heading = current ? 'div' : 'button'
   return (
     <fieldset
       disabled={disabled}
@@ -272,15 +273,14 @@ export function QuestionItem({
         current ? 'border-border/80 bg-background/50' : 'border-transparent',
       )}
     >
-      <legend className="sr-only">{question.text}</legend>
-      <button
-        type="button"
-        tabIndex={current ? -1 : 0}
-        aria-expanded={current}
-        onClick={onOpen}
+      <legend className="sr-only">
+        <MarkdownPreview text={question.text} />
+      </legend>
+      <Heading
+        {...(!current && { type: 'button', 'aria-expanded': false, onClick: onOpen })}
         className={cn(
           'flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
-          current ? 'cursor-default' : 'cursor-pointer hover:bg-muted/40',
+          !current && 'cursor-pointer hover:bg-muted/40',
         )}
       >
         <span
@@ -295,14 +295,15 @@ export function QuestionItem({
         >
           {done && !current ? <Check className="size-2.5" /> : position(question, index)}
         </span>
-        <span
-          className={cn(
-            'min-w-0 text-[13px] leading-snug',
-            current ? 'flex-1 text-foreground' : 'shrink truncate text-foreground/85',
-          )}
-        >
-          {question.text}
-        </span>
+        {current ? (
+          <MessageResponse className="flex-1 text-[13px] leading-snug" mode="static">
+            {question.text}
+          </MessageResponse>
+        ) : (
+          <span className="min-w-0 shrink truncate text-[13px] leading-snug text-foreground/85">
+            <MarkdownPreview text={question.text} />
+          </span>
+        )}
         {!current && (
           <span
             className={cn(
@@ -325,7 +326,7 @@ export function QuestionItem({
         {current && multi && (
           <span className="shrink-0 font-mono text-[11px] text-muted-foreground">pick any</span>
         )}
-      </button>
+      </Heading>
       <div
         className={cn(
           'grid transition-[grid-template-rows] duration-200 ease-out',
