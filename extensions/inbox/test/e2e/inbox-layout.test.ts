@@ -23,12 +23,13 @@ const gallery = 'https://example.com/gallery'
 const preview = 'https://preview.example.com:8445/before_and_after/gallery'
 const notes = 'https://example.com/notes'
 const body = [
-  `[Open the gallery](${gallery})\n\nAlternate preview: ${preview}\n`,
+  `[Open the gallery][gallery]\n\nAlternate preview: ${preview}\n`,
   ...Array.from(
     { length: 8 },
     (_, index) =>
       `## Section ${index + 1}\n\n${'It weighs both ways and the numbers move. '.repeat(10)}\n`,
   ),
+  `[gallery]: ${gallery}\n`,
 ].join('\n')
 
 /** How much taller than the window the document is, and whether the reading pane itself scrolls. */
@@ -116,7 +117,7 @@ async function setup() {
   return { server, browser, message }
 }
 
-it('scrolls the reading pane inside the window, never the page', async () => {
+it('opens deep links and keeps scrolling and answer keys in the reading pane', async () => {
   const { server, browser, message } = await setup()
   for (const viewport of [
     { width: 1440, height: 900 },
@@ -125,11 +126,27 @@ it('scrolls the reading pane inside the window, never the page', async () => {
     const page = await browser.newPage({ viewport })
     // `?inbox=` opens the surface at the message, which is how a phone reaches an item.
     await page.goto(`${server.url}/?conversation=1&inbox=${message}`)
-    await page.locator('[data-inbox-item]').waitFor()
+    const pane = page.locator(`[data-inbox-item="${message}"]`)
+    const row = page.locator(`[data-inbox-row="${message}"]`)
+    await pane.waitFor()
+    await page.waitForURL((url) => !url.searchParams.has('inbox'))
     const { beyond, paneScrolls } = await layout(page)
     // The message and its card make the pane scroll: without that this test could pass with nothing to overflow.
     expect(paneScrolls).toBe(true)
     expect(beyond).toBeLessThanOrEqual(0)
+    if (viewport.width === 390) {
+      await pane.getByRole('button', { name: 'Back to the Inbox' }).click()
+      await pane.waitFor({ state: 'hidden' })
+      await row.click()
+      await pane.waitFor()
+    } else {
+      await row.click()
+      await page.keyboard.press('2')
+      await pane
+        .getByRole('button', { name: 'in the status line at the bottom', pressed: true })
+        .first()
+        .waitFor()
+    }
     await page.close()
   }
 })
@@ -151,7 +168,7 @@ it('opens links from the message lead, body and question after tapping the phone
     ['notes', notes],
   ]) {
     await item.getByRole('button', { name: label, exact: true }).tap()
-    const confirm = page.locator('[data-streamdown="link-safety-modal"]')
+    const confirm = page.getByRole('dialog', { name: 'Open external link?' })
     await confirm.waitFor()
     expect(await confirm.textContent()).toContain(url)
     await page.keyboard.press('Escape')

@@ -668,7 +668,7 @@ function useQuestionSideStart({
         {asker?.title ? ` · ${asker.title}` : ''} asked you, and knows everything that led here:
       </p>
       <div className="mt-2 border-l-2 border-brand/50 pl-3 text-[13px] leading-relaxed text-muted-foreground [&_p]:my-1">
-        <MessageResponse mode="static">{message.text}</MessageResponse>
+        <MessageResponse>{message.text}</MessageResponse>
       </div>
       <p className="mt-3 font-mono text-[11px] text-muted-foreground/70">
         Ask why, what an option means, or say what to pick.

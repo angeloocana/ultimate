@@ -153,7 +153,7 @@ export function Body({
       {pending && !text ? (
         <Shimmer as="p">{pending}</Shimmer>
       ) : (
-        <MessageResponse mode={streaming ? 'streaming' : 'static'}>{text}</MessageResponse>
+        <MessageResponse isAnimating={streaming}>{text}</MessageResponse>
       )}
     </div>
   )

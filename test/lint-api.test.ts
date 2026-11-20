@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises'
-import { join, relative, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { parseSync } from 'vite-plus'
 import { expect, it } from 'vitest'
 import ultimate from '../lint/ultimate.ts'
@@ -298,6 +298,47 @@ export { TaskChip } from '../plan/chip.tsx'`
   ])
 })
 
+const solidMessage = (file: string) =>
+  `echo imports ${file} at runtime; reach ${file.split('/')[0]} through its refs.ts (the refs of its documents and actions) or its ui.solid.tsx (its Solid components; its ui.tsx is React), import types with \`import type\`, or move a pure helper to lib/.`
+
+it('lets Solid code reach another extension through its refs.ts or ui.solid.tsx, since its ui.tsx is React', () => {
+  const source = `import { ContextDoc } from '../conversations/refs.ts'
+import { ConversationRef } from '../conversations/ui.solid.tsx'
+import { ContextBar } from '../conversations/ui.tsx'`
+  expect(lint('api-only-imports', 'extensions/echo/status.solid.tsx', source)).toEqual([
+    solidMessage('conversations/ui.tsx'),
+  ])
+  const project = `import { BoardDoc } from '../board/refs.ts'
+import { columns } from '../board/columns.ts'`
+  expect(lint('api-only-imports', '.ultimate/extensions/echo/status.solid.tsx', project)).toEqual([
+    solidMessage('board/columns.ts'),
+  ])
+})
+
+it('sends a Solid form to the kit Form, whose submit Button keeps who submitted it', () => {
+  const source = `export const Add = () => (
+  <form onSubmit={(event) => event.preventDefault()}>
+    <Form />
+  </form>
+)`
+  expect(lint('ui-kit-roles', 'extensions/todos/panel.solid.tsx', source)).toEqual([
+    `Use the kit's Form from @/components/ui and start the change in its type="submit" Button's onClick, which Enter in a field presses too.`,
+  ])
+  expect(lint('ui-kit-roles', 'web/src/components/ui/form.solid.tsx', source)).toEqual([])
+})
+
+it('keeps server helpers out of web tests, which the web tsconfig type-checks', () => {
+  const source = `import { until } from '../../../../test/helpers.ts'
+import { renderSolid } from '../../../../test/web/solid-dom-setup.ts'`
+  expect(
+    lint(
+      'no-server-helpers-in-web-tests',
+      'extensions/fast/test/web/toggle.test.solid.tsx',
+      source,
+    ),
+  ).toHaveLength(1)
+})
+
 it('keeps React and Solid apart, and ui-sdk components behind the UI kit', () => {
   const solidSource = `/** @jsxImportSource @solidjs/web */
 import { useState } from 'react'
@@ -329,13 +370,64 @@ import { createSignal } from 'solid-js'
 import { Panel } from './panel.solid.tsx'
 import type { PanelProps } from './panel.solid.tsx'`
   const move = (source: string) =>
-    `Move this code into a .solid.tsx file, or mount a Solid component through @/sdk instead of importing ${source}.`
+    `Move this code into a .solid.tsx file, or import the Solid component in your extension's web.tsx and contribute it as island(Component) from @/sdk instead of importing ${source} here.`
   expect(lint('ui-framework-boundaries', 'extensions/echo/web.tsx', reactSource)).toEqual([
+    move('@solidjs/web'),
+    move('solid-js'),
+  ])
+  expect(lint('ui-framework-boundaries', 'extensions/echo/panel.tsx', reactSource)).toEqual([
     move('@solidjs/web'),
     move('solid-js'),
     move('./panel.solid.tsx'),
   ])
+  expect(
+    lint(
+      'ui-framework-boundaries',
+      'extensions/echo/web.tsx',
+      `export { Panel } from './panel.solid.tsx'`,
+    ),
+  ).toEqual([move('./panel.solid.tsx')])
   expect(lint('ui-framework-boundaries', 'web/src/sdk/solid.ts', reactSource)).toEqual([])
+  expect(lint('ui-framework-boundaries', 'web/src/sdk/island.tsx', reactSource)).toEqual([])
+  const solidSdk = `import { useDoc } from '@/sdk/solid'
+import { useUiState } from '../../web/src/sdk/solid.ts'
+import type { Accessor } from '@/sdk/solid'`
+  expect(lint('ui-framework-boundaries', 'extensions/echo/web.tsx', solidSdk)).toEqual([
+    move('@/sdk/solid'),
+    move('../../web/src/sdk/solid.ts'),
+  ])
+  expect(lint('ui-framework-boundaries', 'web/src/sdk/hooks.ts', reactSource)).toEqual([
+    move('@solidjs/web'),
+    move('solid-js'),
+    move('./panel.solid.tsx'),
+  ])
+})
+
+it('lets only the core hosts in web/src/app import the temporary reactIsland', () => {
+  const source = `import { reactIsland } from '@/sdk/react-island'
+const later = import(\`@/sdk/react-island\`)`
+  const moveIt =
+    'Move this part to Solid, or keep it React and contribute it where a core host renders React.'
+  expect(lint('ui-framework-boundaries', 'web/src/app/transcript.solid.tsx', source)).toEqual([])
+  for (const file of ['extensions/echo/web.tsx', 'extensions/echo/panel.solid.tsx'])
+    expect(lint('ui-framework-boundaries', file, source)).toEqual([moveIt, moveIt])
+})
+
+it('gives Solid files the Solid SDK, and types alone from the React one', () => {
+  const source = `/** @jsxImportSource @solidjs/web */
+import { useDoc } from '@/sdk'
+import { useStore } from '@/sdk/hooks'
+import { store } from '../../web/src/sdk/client.ts'
+import { useDoc as useSolidDoc, cn } from '@/sdk/solid'
+import type { SystemInfo } from '@/sdk'
+export type { DocRef } from '@/sdk'`
+  const solidSdk = (module: string) =>
+    `Import the Solid bindings from @/sdk/solid instead of ${module}; types may still come from @/sdk with \`import type\`.`
+  expect(lint('ui-framework-boundaries', 'extensions/echo/status.solid.tsx', source)).toEqual([
+    solidSdk('@/sdk'),
+    solidSdk('@/sdk/hooks'),
+    solidSdk('../../web/src/sdk/client.ts'),
+  ])
 })
 
 it('asks every Solid file for a leading block Solid JSX pragma, and only Solid files', () => {
@@ -372,12 +464,12 @@ import { Button } from '@/components/ui/button'`
 })
 
 it('resolves a directory import to its index file, and .ts before .tsx as Vite does', async () => {
-  const folder = await temp('lint-resolve-', resolve('extensions'))
+  const folder = await temp('lint-resolve-')
   await mkdir(join(folder, 'card'))
   await writeFile(join(folder, 'card/index.tsx'), '')
   await writeFile(join(folder, 'format.ts'), '')
   await writeFile(join(folder, 'format.tsx'), '')
-  const file = join(relative('.', folder), 'panel.solid.tsx')
+  const file = join(folder, 'panel.solid.tsx')
   const source = `/** @jsxImportSource @solidjs/web */
 import { Card } from './card'
 import { format } from './format'`
@@ -458,4 +550,13 @@ export type AbstractData = {
 MIT License — Copyright (c) 2025 Mario Zechner
 */`
   expect(lint('no-comments', 'extensions/entries/refs.ts', contract)).toEqual([])
+  const solidSdk = `/**
+ * The extension SDK for Solid facets.
+ */
+import { store } from './client.ts'
+/** Keyed per conversation and kind. */
+const replicaKey = (kind: string) => kind
+/** The document as an accessor. */
+export function useDoc() {}`
+  expect(lint('no-comments', 'web/src/sdk/solid.ts', solidSdk)).toHaveLength(1)
 })

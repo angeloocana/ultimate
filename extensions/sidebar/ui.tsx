@@ -27,4 +27,5 @@ export const PreviewUp = definePoint<ConversationId | undefined, boolean>('sideb
  */
 export const ProjectSwitch = definePoint<boolean, ReactNode>('sidebar.project-switch')
 
-export { colourOf, GithubMark, ProjectSwatch, RepoLabel, stemOf } from './tile.tsx'
+export { colourOf, stemOf } from './colour.ts'
+export { GithubMark, ProjectSwatch, RepoLabel } from './tile.tsx'

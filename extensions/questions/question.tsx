@@ -296,7 +296,7 @@ export function QuestionItem({
           {done && !current ? <Check className="size-2.5" /> : position(question, index)}
         </span>
         {current ? (
-          <MessageResponse className="flex-1 text-[13px] leading-snug" mode="static">
+          <MessageResponse className="flex-1 text-[13px] leading-snug">
             {question.text}
           </MessageResponse>
         ) : (
