@@ -138,20 +138,18 @@ function Composer(props: {
     const viewport = window.visualViewport
     const listeners = new AbortController()
     let frame = 0
+    const visibleBottom = () =>
+      viewport ? viewport.offsetTop + viewport.height : window.innerHeight
     const scrollSendIntoView = () => {
-      const visibleBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight
-      const below = composer.getBoundingClientRect().bottom + 8 - visibleBottom
+      const below = composer.getBoundingClientRect().bottom + 8 - visibleBottom()
       if (below > 0) scrollerOf(box)?.scrollBy({ top: below })
     }
     const keepSendInView = () => {
       cancelAnimationFrame(frame)
-      if (!box.contains(document.activeElement)) {
-        box.style.paddingBottom = ''
-        return
-      }
-      const visibleBottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight
-      const occluded = Math.max(0, window.innerHeight - visibleBottom)
-      box.style.paddingBottom = occluded ? `${occluded}px` : ''
+      const occluded = Math.max(0, window.innerHeight - visibleBottom())
+      if (!occluded) box.style.paddingBottom = ''
+      if (!box.contains(document.activeElement)) return
+      if (occluded) box.style.paddingBottom = `${occluded}px`
       frame = requestAnimationFrame(scrollSendIntoView)
     }
     const resized = new ResizeObserver(keepSendInView)
