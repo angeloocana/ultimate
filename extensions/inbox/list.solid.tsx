@@ -1,5 +1,5 @@
 /** @jsxImportSource @solidjs/web */
-import { For, Show, createEffect, createMemo } from 'solid-js'
+import { For, Show, createEffect, createMemo, createUniqueId } from 'solid-js'
 import { Button } from '@/components/ui/button.solid.tsx'
 import { Kbd } from '@/components/ui/kbd.solid.tsx'
 import {
@@ -15,19 +15,23 @@ import { ConversationRef } from '../conversations/ui.solid.tsx'
 import { SELECTED, WAIT_WARNING_AFTER_MS, amber, shown } from './items.ts'
 import type { Anchor, Row, Selection } from './items.ts'
 
+const tagClass = 'shrink-0 rounded border border-border/70 px-1 font-mono text-[10px] leading-4'
+
 function InboxRow(props: {
   row: Row
   now: number
   current: boolean
   select: (row: Anchor) => void
 }) {
+  const description = createUniqueId()
   return (
     <Button
       aria-current={props.current ? 'true' : undefined}
+      aria-describedby={props.row.due || props.row.priority ? description : undefined}
       aria-label={`Read ${props.row.title} (${props.row.message === undefined ? props.row.key : `#${props.row.message}`})`}
       class={cn(
-        'flex w-full flex-col items-stretch gap-1 px-3 py-2.5 text-left focus-visible:ring-1 hover:bg-accent/40',
-        props.current && 'bg-accent/60 hover:bg-accent/60',
+        'flex w-full flex-col items-stretch gap-1 px-3 py-2.5 text-left focus-visible:ring-1',
+        props.current && 'bg-accent/60',
       )}
       data-inbox-row={props.row.message ?? props.row.key}
       onClick={(event) => {
@@ -40,16 +44,47 @@ function InboxRow(props: {
       <span class="flex min-w-0 items-center gap-2">
         <Show
           when={props.row.conversation}
-          fallback={<span class="font-mono text-[10.5px]">{props.row.from}</span>}
+          fallback={<span class="truncate font-mono text-[10.5px]">{props.row.from}</span>}
         >
           {(id) => (
-            <ConversationRef class="font-mono text-[10.5px] text-muted-foreground/70" id={id()} />
+            <ConversationRef
+              class="overflow-hidden font-mono text-[10.5px] text-muted-foreground/70"
+              id={id()}
+            />
           )}
         </Show>
         <span class="ml-auto flex shrink-0 items-center gap-2">
-          <span class="shrink-0 rounded border border-border/70 px-1 font-mono text-[10px] leading-4 text-muted-foreground">
-            {props.row.tag}
-          </span>
+          <span class={cn(tagClass, 'text-muted-foreground')}>{props.row.tag}</span>
+          <Show when={props.row.due || props.row.priority}>
+            <span class="flex items-center gap-1" id={description}>
+              <Show when={props.row.due}>
+                {(due) => (
+                  <span
+                    class={cn(
+                      tagClass,
+                      due() === 'overdue' ? 'text-red-700 dark:text-red-300' : amber,
+                    )}
+                  >
+                    {due() === 'overdue' ? 'Overdue' : 'Today'}
+                  </span>
+                )}
+              </Show>
+              <Show when={props.row.priority}>
+                {(priority) => (
+                  <span
+                    class={cn(
+                      tagClass,
+                      'capitalize',
+                      priority() === 'high' ? amber : 'text-muted-foreground',
+                    )}
+                  >
+                    <span class="sr-only">Priority: </span>
+                    {priority()}
+                  </span>
+                )}
+              </Show>
+            </span>
+          </Show>
           <time
             class={cn(
               'shrink-0 font-mono text-[11px] tabular-nums',
@@ -131,7 +166,7 @@ export function List(props: { rows: readonly Row[]; phone: boolean }) {
         <span class="section-label">
           Waiting on you · <span class={amber}>{props.rows.length}</span>
         </span>
-        <span class="section-label">oldest first</span>
+        <span class="section-label">urgency first</span>
       </div>
       <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-4" data-inbox-list>
         <For each={props.rows} keyed={(row) => row.key}>

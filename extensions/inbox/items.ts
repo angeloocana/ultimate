@@ -1,5 +1,6 @@
 import type { ConversationId } from '@earendil-works/pi-durable'
 import { markdownText } from '@/components/markdown/parse.ts'
+import { dueStatus } from '../../lib/calendar-day.ts'
 import { openQuestion } from '../../lib/message-state.ts'
 import type { Message } from '../messages/refs.ts'
 import type { InboxItem } from './ui.tsx'
@@ -21,6 +22,8 @@ export type Row = Anchor &
     gist?: string
     more?: number
     message?: number
+    priority?: InboxItem['priority']
+    due?: ReturnType<typeof dueStatus>
   }
 export type Answered = Sender & { id: number; at: number; title: string }
 
@@ -50,13 +53,28 @@ export const inboxItems = (
 
 const byAge = (a: Anchor, b: Anchor) => a.at - b.at || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
 
+const dueRank = { overdue: 0, today: 1, later: 2 }
+const priorityRank = { high: 0, normal: 1, low: 2 }
+
+export const sortForSurface = (entries: readonly Entry[], today: string): Entry[] =>
+  entries.toSorted(
+    (a, b) =>
+      dueRank[dueStatus(a.item?.due, today) ?? 'later'] -
+        dueRank[dueStatus(b.item?.due, today) ?? 'later'] ||
+      priorityRank[a.item?.priority ?? 'normal'] - priorityRank[b.item?.priority ?? 'normal'] ||
+      byAge(a, b),
+  )
+
 export function shown<T extends Anchor>(entries: readonly T[], selected: Selection): T | undefined {
   if (!selected) return entries[0]
-  return (
-    entries.find((entry) => entry.key === selected.key) ??
-    entries.find((entry) => byAge(entry, selected) > 0) ??
-    entries.at(-1)
-  )
+  let successor: T | undefined
+  let newest: T | undefined
+  for (const entry of entries) {
+    if (entry.key === selected.key) return entry
+    if (byAge(entry, selected) > 0 && (!successor || byAge(entry, successor) < 0)) successor = entry
+    if (!newest || byAge(entry, newest) > 0) newest = entry
+  }
+  return successor ?? newest
 }
 
 export const UNLOADED = 0
@@ -86,7 +104,7 @@ const sender = (from: Message['from'] | undefined): Sender =>
 export const senderOf = (entry: Entry): Sender =>
   sender(entry.message ? entry.message.from : entry.item.conversation)
 
-export function toRow(entry: Entry): Row {
+export function toRow(entry: Entry, today: string): Row {
   const { key, at, message, item } = entry
   return {
     key,
@@ -97,6 +115,8 @@ export function toRow(entry: Entry): Row {
     gist: message ? markdownText(message.questions?.[0]?.text ?? '') : item.gist,
     more: Math.max(0, (message?.questions?.length ?? 0) - 1),
     message: message?.id,
+    priority: item?.priority,
+    due: dueStatus(item?.due, today),
   }
 }
 

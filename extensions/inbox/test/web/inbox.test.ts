@@ -1,6 +1,14 @@
 import type { ConversationId } from '@earendil-works/pi-durable'
 import { expect, it } from 'vitest'
-import { inboxItems, keyOf, selectionAfterChange, shown, UNLOADED } from '../../items.ts'
+import {
+  inboxItems,
+  keyOf,
+  selectionAfterChange,
+  shown,
+  sortForSurface,
+  toRow,
+  UNLOADED,
+} from '../../items.ts'
 import type { Anchor, Selection } from '../../items.ts'
 import type { InboxItem } from '../../ui.tsx'
 import type { Message } from '../../../messages/refs.ts'
@@ -46,6 +54,42 @@ it('lists the open questions to the user and the provided items, oldest first', 
   ])
 })
 
+it('sorts the Inbox by due status, priority, age and key without reordering Waiting', () => {
+  const today = '2026-11-22'
+  const merged = inboxItems(log, [
+    [
+      { ...item('old:low', 900), due: '2026-11-21', priority: 'low' },
+      { ...item('old:high', 950), due: '2026-11-20', priority: 'high' },
+      { ...item('today', 980), due: today },
+      { ...item('future:high', 90), due: '2026-11-23', priority: 'high' },
+      { ...item('undated:low', 10), priority: 'low' },
+      { ...item('undated:normal', 300), priority: 'normal' },
+      item('undated:default', 300),
+    ],
+  ])
+  const rows = sortForSurface(merged, today).map((entry) => toRow(entry, today))
+  expect(rows.map((row) => row.key)).toEqual([
+    'old:high',
+    'old:low',
+    'today',
+    'future:high',
+    'message:1',
+    'message:3',
+    'undated:default',
+    'undated:normal',
+    'message:7',
+    'undated:low',
+  ])
+  expect(rows.slice(0, 5).map(({ due, priority }) => [due, priority])).toEqual([
+    ['overdue', 'high'],
+    ['overdue', 'low'],
+    ['today', undefined],
+    [undefined, 'high'],
+    [undefined, undefined],
+  ])
+  expect(merged[0]?.key).toBe('undated:low')
+})
+
 it('moves on to the next oldest when the shown item is answered', () => {
   const before = inboxItems(log)
   const selected = { key: 'message:3', at: 300, open: true }
@@ -89,6 +133,16 @@ it('moves forward past items of the same age', () => {
   expect(entries.map((entry) => entry.key)).toEqual(['x:a', 'x:b', 'x:c'])
   const left = entries.filter((entry) => entry.key !== 'x:b')
   expect(shown(left, { key: 'x:b', at: 10, open: false })?.key).toBe('x:c')
+})
+
+it('keeps the selected key on reorder and finds the age successor independent of visual order', () => {
+  const [a, b, c, d] = [at('a', 10), at('b', 20), at('c', 20), at('d', 40)]
+  const selected = { ...b, open: true }
+  expect(shown([d, a, c, b], selected)).toEqual(b)
+  expect(selectionAfterChange([d, a, c, b], selected)).toBeUndefined()
+  expect(shown([d, a, c], selected)).toEqual(c)
+  expect(selectionAfterChange([d, a, c], selected)).toEqual({ ...c, open: true })
+  expect(shown([c, a], { ...d, open: true })).toEqual(c)
 })
 
 it('reads a link as a key, a plain number as a message id', () => {

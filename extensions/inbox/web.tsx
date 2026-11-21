@@ -10,10 +10,11 @@ import {
   useUltimate,
   useViewport,
 } from '@/sdk'
+import { localDay } from '../../lib/calendar-day.ts'
 import type { Message } from '../messages/refs.ts'
 import { UnderUltimate } from '../sidebar/ui.tsx'
 import { Badge, LinkOverlay, SidebarRow, Zero } from './chrome.solid.tsx'
-import { SURFACE, answeredToday, toRow } from './items.ts'
+import { SURFACE, answeredToday, sortForSurface, toRow } from './items.ts'
 import type { Entry } from './items.ts'
 import { List } from './list.solid.tsx'
 import { Reading } from './reading.tsx'
@@ -35,8 +36,10 @@ function Inbox() {
 function Surface({ entries, messages }: { entries: Entry[]; messages: readonly Message[] }) {
   const phone = useViewport() === 'phone'
   const now = useNow(60_000)
-  const { shown: item, selected, setSelected } = useSelection(entries)
-  const list = <ListIsland phone={phone} rows={entries.map(toRow)} />
+  const today = localDay(now)
+  const ordered = sortForSurface(entries, today)
+  const { shown: item, selected, setSelected } = useSelection(ordered)
+  const list = <ListIsland phone={phone} rows={ordered.map((entry) => toRow(entry, today))} />
   const reading = item && (
     <Reading
       entry={item}
@@ -113,7 +116,7 @@ export default defineWebExtension({
       id: SURFACE,
       title: 'Inbox',
       icon: InboxIcon,
-      description: 'Everything that waits on you, oldest first, answered in place',
+      description: 'Everything that waits on you, in urgency order, answered in place',
       order: 10,
       component: Inbox,
       badge: WaitingBadge,

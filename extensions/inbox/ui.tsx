@@ -15,8 +15,12 @@ import type { Entry } from './items.ts'
 export type InboxItem = {
   /** Unique across providers, such as `shell:12`; `?inbox=<key>` and `inbox:open {key}` select it. */
   key: string
-  /** When it started waiting, epoch ms: the list is oldest first. */
+  /** When it started waiting, epoch ms. */
   at: number
+  /** Defaults to normal for sorting. */
+  priority?: 'high' | 'normal' | 'low'
+  /** Due date, YYYY-MM-DD in the user's local calendar. */
+  due?: string
   /** The conversation it belongs to: the row shows it and the reading pane offers "Open in branch". */
   conversation?: ConversationId
   /** The row's short kind tag, as `question` or `preview` for questions. */

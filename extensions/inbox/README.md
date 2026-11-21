@@ -1,6 +1,6 @@
 # Inbox
 
-Everything that waits on the user, oldest first, answered in place: the `inbox` surface, first tab after Agent. Its
+Everything that waits on the user, in urgency order, answered in place: the `inbox` surface, first tab after Agent. Its
 items are the open questions in the live Messages log merged with the items other extensions provide (`items.ts`);
 a question leaves the moment it is answered or dismissed, wherever
 that happened, a provided item when its provider stops listing it. Browser only: no `server.ts`, no documents, no
@@ -10,26 +10,30 @@ actions of its own.
 
 Another extension puts its own things to do in the Inbox (a command to run in a terminal, say) by providing the
 `InboxItems` point from its `web.tsx`: `provide(InboxItems, () => items)`, a hook returning
-`{ key, at, conversation?, tag, title, gist?, pane }[]`. `key` is unique across providers (`shell:12`), `at` when it
-started waiting, `tag` the row's kind tag, `pane` the reading pane's content below the title, its buttons included;
-with `conversation` the row names it and the pane offers **Open in branch**. Every provider's items count in the
-sidebar row and the To-dos' "For you" row too: they all read `Waiting` from `ui.tsx`. A provider that throws is left
-out behind its inline error card. Items are entries keyed by string; a question's key is `message:<id>`.
+`{ key, at, conversation?, tag, title, gist?, priority?, due?, pane }[]`. `key` is unique across providers (`shell:12`),
+`at` is when it started waiting, `tag` is the row's kind tag, and `pane` is the reading pane's content below the title,
+its buttons included. With `conversation` the row names it and the pane offers **Open in branch**. `priority` is
+`high`, `normal` (the default for sorting) or `low`; `due` is a date (`YYYY-MM-DD`) in the user's local calendar.
+The sidebar and the To-dos' "For you" row still count every item: they read the merged, age-ordered `Waiting` from
+`ui.tsx`. A provider that throws is left out behind its inline error card. Items are entries keyed by string; a
+question's key is `message:<id>`.
 
 ## Surface (`web.tsx`)
 
 - **List**: one row per item, the asking branch's feature chip and `#id` as the sidebar draws them, a `preview` tag
   when the text links to a local preview (`http://127.0.0.1:…` or `localhost`), else `question`; the start of the
-  message as its title, its first question as the gist, and how long it has waited, amber past an hour.
-  Titles and gists show Markdown as plain preview text; tapping the row opens the full message.
+  message as its title, its first question as the gist, and how long it has waited, amber past an hour. Rows show
+  explicit priority and **Today** or **Overdue** when applicable. The list puts overdue items first, then items due
+  today, then the rest; within each group it sorts by priority, then age, then key. Questions still have no due
+  date or priority label. Titles and gists show Markdown as plain preview text; tapping the row opens the full message.
 - **Reading pane** for the selected item: the whole message in the transcript's Markdown renderer (including the
   first line and links), its forwarded images (`MessageImages`), **Open preview** (a new tab) when it links one,
   **Open in branch #id** (messages' `messages:open {conversation, message}`), and the answer card itself (questions' `MessageQuestions`). An extension
   providing `QuestionPane` (`ui.tsx`) may take a question's pane over: side-chat shows the question's side chat there
   while it is in front.
-- **Keys** (desktop): `j`/`k` move the selection, `⇧O` opens the branch (plain `o` is the card's "Something else…"),
-  and the card's own keys (1–9, letters, ↵, ⇧↵) answer the shown item: the Inbox passes `keys` to the card. A
-  branch's transcript keeps its own rule (`keyCard`) when the Inbox is not on screen.
+- **Keys** (desktop): `j`/`k` move the selection in visible order, `⇧O` opens the branch (plain `o` is the card's
+  "Something else…"), and the card's own keys (1–9, letters, ↵, ⇧↵) answer the shown item: the Inbox passes `keys`
+  to the card. A branch's transcript keeps its own rule (`keyCard`) when the Inbox is not on screen.
 - **Phone**: the list full width; a tap shows the item full screen with a back arrow, the answer card after the text.
 - **Zero**: "Nothing waits on you", the questions answered or dismissed today (tap to open in the transcript),
   and **Back to @ultimate**.
@@ -38,10 +42,10 @@ React renders the shell and reading pane; Solid islands render the list, empty s
 handler. They receive plain data, not provided panes.
 
 The durable UI key `ext.inbox.selected` holds `{ key, at, open }`. The list and the reading pane show that key if
-present. If it leaves, they show the next one in the list's order (by age, then key), or the last entry if none is
-that new, and the selection moves to that entry, so a newer arrival never takes its place.
-With no selection they show the oldest entry. Desktop ignores `open`; the phone's back arrow clears `open` without
-forgetting the selection.
+present, even when urgency reorders it. If it leaves, they show the next one by age, then key (regardless of visual
+order), or the newest entry if none is that new. The selection moves to that entry, so a newer arrival never takes
+its place. With no selection they show the first visible entry. Desktop ignores `open`; the phone's back arrow
+clears `open` without forgetting the selection.
 
 `?inbox=<key>` on load opens the surface at that entry and removes the parameter from the address. The
 `inbox:open {key}` event does the same at runtime (a push notification's tap, `extensions/push`). A plain number, in
