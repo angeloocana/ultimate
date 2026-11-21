@@ -327,6 +327,7 @@ function ComposerEditor(props: {
   const blocked = () =>
     prompt() || loading() ? undefined : blockedBy(conversation().agent, models())
   const empty = () => !text().trim() && images().length === 0 && files().length === 0
+  const problem = () => value().error ?? blocked()
   const inert = () => loading() || sending() || attach.reading()
 
   const update = (next: string) => {
@@ -558,11 +559,11 @@ function ComposerEditor(props: {
             <span
               class={cn(
                 'truncate font-mono text-[11px]',
-                value().error || blocked() ? 'text-error' : 'text-muted-foreground/70',
+                problem() ? 'text-error' : 'text-muted-foreground/70',
               )}
             >
               <Show
-                when={prompt() ? undefined : (value().error ?? blocked())}
+                when={!prompt() && problem()}
                 fallback={
                   <Show when={busy() && !target()}>
                     <span class="pointer-coarse:hidden">
@@ -571,7 +572,7 @@ function ComposerEditor(props: {
                   </Show>
                 }
               >
-                {(problem) => problem()}
+                {problem()}
               </Show>
             </span>
             <label
@@ -666,12 +667,10 @@ function ComposerEditor(props: {
           </Show>
         }
       >
-        <Show when={value().error}>
-          {(problem) => (
-            <p class="mt-1.5 text-sm break-words text-error" role="alert">
-              {problem()}
-            </p>
-          )}
+        <Show when={problem()}>
+          <p class="mt-1.5 text-sm break-words text-error" role="alert">
+            {problem()}
+          </p>
         </Show>
       </Show>
     </div>
