@@ -18,6 +18,7 @@ import {
 import { context } from '../server/harness.ts'
 import { UiState } from '../shared/ui-state.ts'
 import { Metadata } from '../server/metadata.ts'
+import { SOURCE_HEADER } from '../shared/protocol.ts'
 import type { ConversationSummary, ServerEvents } from '../shared/protocol.ts'
 import { Logins } from '../extensions/models/server.ts'
 import { fixture, orderedSource, servers } from './server-fixture.ts'
@@ -156,6 +157,30 @@ export const actions = { ping: async () => 'pong', revoke: async () => { remove(
     )
     await until(async () => (await wire('/api/models')) === 403)
   })
+  it('gives actions the browser or in-process agent source separately from their arguments', async () => {
+    const { server } = await fixture(false, {
+      attribution: `import { defineExtension } from '@earendil-works/pi-durable'
+export default defineExtension({ name: 'attribution' })
+export const actions = {
+  source: async (_args, ctx) => ctx.source,
+  fromAgent: async (_args, ctx) => ctx.host.invoke('attribution', 'source', null, ctx.signal),
+}`,
+    })
+    const call = async (action: string, source?: 'agent' | 'app') => {
+      const response = await fetch(`${server.url}/api/extensions/attribution/actions/${action}`, {
+        method: 'POST',
+        headers: { origin: server.url, ...(source ? { [SOURCE_HEADER]: source } : {}) },
+        body: JSON.stringify({ args: { source: 'person' } }),
+      })
+      expect(response.status).toBe(200)
+      return response.json()
+    }
+    expect(await call('source')).toEqual({ result: 'person' })
+    expect(await call('source', 'agent')).toEqual({ result: 'agent' })
+    expect(await call('source', 'app')).toEqual({ result: 'app' })
+    expect(await call('fromAgent')).toEqual({ result: 'agent' })
+  })
+
   it('revokes a deferred verifier in flight', async () => {
     const { server } = await fixture(false, {
       deferred: `import { defineExtension } from '@earendil-works/pi-durable'

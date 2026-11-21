@@ -320,6 +320,7 @@ export async function loadExtensions(
       fn(args, {
         host: facetHosts.get(name)!,
         conversationId,
+        source: by.source,
         ...(device ? { device } : {}),
         uiChanged: async (tx, change) => {
           const data = uiChange(by, { ...change, conversation: conversationId })
