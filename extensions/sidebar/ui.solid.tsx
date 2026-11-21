@@ -13,6 +13,8 @@ export { PreviewUp } from './points.ts'
 export { UnderUltimate } from './points.ts'
 /** Conversations hidden from the top-level lists; the sidebar takes the union of the providers' sets. */
 export { Unlisted } from './points.ts'
+/** The project switcher shown below the project heading on phones, provided by `projects`. */
+export { ProjectSwitch } from './points.ts'
 
 /** Folder `folder`'s colour, shaded apart from its `family` (the other folders shown beside it), as the sidebar draws it. */
 export function ProjectSwatch(props: {

@@ -1,32 +1,40 @@
 /** @jsxImportSource @solidjs/web */
 import type { Entry, TypedEntry } from '@earendil-works/pi-durable'
 import type { JsonValue } from '@earendil-works/chord/json'
-import { createMemo, For, Show } from 'solid-js'
+import { createMemo, For, onCleanup, Show } from 'solid-js'
+import type { JSX } from '@solidjs/web'
+import type { ConversationId } from '@earendil-works/pi-durable'
 import type { Component } from 'solid-js'
 import { ContributionError } from '../app/contribution-error.solid.tsx'
-import { Contribution } from './react-island.solid.tsx'
-import { islandSolid } from './island-mark.ts'
-import { provisionsOf, useExtensions } from './solid.ts'
-import type { Point, SolidEntryProps } from './types.ts'
+import { Contribution, Slot as BridgeSlot } from './contribution.solid.tsx'
+import { isReact } from './framework.ts'
+import { store } from './client.ts'
+import { scopeAttribute } from './scope.ts'
+import { ConversationScope, provisionsOf, Transcript, useExtensions } from './hooks.ts'
+import type { Point, SlotName, SolidEntryProps } from './types.ts'
 
-export { Card } from '../app/card.solid.tsx'
-/** A card that folds to one quiet line in compact mode; `label` names its button. The reader's choice survives reloads. */
-export { Fold, useFold } from '../app/fold.solid.tsx'
-export { MessageActions } from '../app/message-actions.solid.tsx'
-export { UserText, UserView } from '../app/user-turn.solid.tsx'
-export { useToolDuration } from '../app/tool-call.solid.tsx'
-/** Renders the contributions to a slot, in either framework, with the host's error fallback. */
-export { Slot } from './react-island.solid.tsx'
-/** The values all React providers give for `point`, in discovery order. */
-export { useAllProvided } from './react-island.solid.tsx'
-/** The value the last provider in discovery order gives for `point`, from a React provider's hook. */
-export { useProvided } from './react-island.solid.tsx'
+/** Any slot by name, each item isolated: one that throws shows its error card inline and the rest still render. */
+export function Slot(props: { name: SlotName; variant?: 'inline' | 'block' }) {
+  return (
+    <BridgeSlot
+      fallback={(extension, error) => (
+        <ContributionError
+          error={error}
+          extension={extension}
+          inline={props.variant === 'inline'}
+        />
+      )}
+      name={props.name}
+      variant={props.variant}
+    />
+  )
+}
 
 /**
  * Renders what each extension provides for `point` with `input`, in discovery order (`last` keeps only the last
- * provider). A provider contributed as `provide(Point, island(C))` renders as Solid, `C` taking the live input as its
- * props; any other provider's hook renders as React with a copy of the input taken whenever any of it changes. A
- * provider that throws shows its error inline and the rest still render.
+ * provider). A Solid provider is a component taking the live input as its props; a React provider's hook renders
+ * through the compat layer with a copy of the input taken whenever any of it changes. A provider that throws shows its
+ * error inline and the rest still render.
  */
 export function Provided<Input extends object>(props: {
   point: Point<Input, unknown>
@@ -48,7 +56,7 @@ export function Provided<Input extends object>(props: {
       {(item) => (
         <Show
           fallback={<Provider item={item()} input={copy()} />}
-          when={islandSolid(item().component) !== undefined}
+          when={!isReact(item().component)}
         >
           <Provider item={item()} input={props.input as Record<string, unknown>} />
         </Show>
@@ -83,8 +91,8 @@ function Provider(props: {
 }
 
 /**
- * Narrows a Solid entry renderer's entry with its writer's token, as `renderEntry` from `@/sdk`: `Card` renders a
- * matching entry, any other renders `core`. Contribute it as `island(renderEntry(Token, Card))`.
+ * Narrows an entry renderer's entry with its writer's token: `Card` renders a matching entry, any other renders `core`.
+ * Contribute it as `entries: { 'my.kind': renderEntry(Token, Card) }`.
  */
 export function renderEntry<D extends JsonValue>(
   token: Entry<D>,
@@ -98,4 +106,26 @@ export function renderEntry<D extends JsonValue>(
       </Show>
     )
   }
+}
+
+/**
+ * Gives `children` their own live conversation `id` without switching the shown one: the SDK readers, the transcript and
+ * composer inside follow it, and so do shortcuts pressed inside it. Scopes of the same id share one stream, released when
+ * the last one unmounts.
+ */
+export function ScopedConversation(props: { id: ConversationId; children: JSX.Element }) {
+  return <For each={[props.id]}>{(id) => scope(id, () => props.children)}</For>
+}
+
+function scope(id: ConversationId, children: () => JSX.Element) {
+  onCleanup(store.watchConversation(id))
+  return (
+    <ConversationScope value={id}>
+      <Transcript value={null}>
+        <div class="contents" {...{ [scopeAttribute]: id }}>
+          {children()}
+        </div>
+      </Transcript>
+    </ConversationScope>
+  )
 }

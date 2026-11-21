@@ -16,6 +16,5 @@ A project switcher at the window's left edge: every Ultimate running on this mac
 - `server.ts`
   - `list`, `{}` → `RunningProject[]` (`refs.ts`): the projects `host.projects()` finds running (their supervisor lock is held by a live process), each with its loopback URL; a branch checkout's name is `<project> #<id>`, so it shows and colours with its project. Each carries its `origin`'s GitHub `repo` (`{name, url, visibility?}`) once known: read in the background on first sight (`git`, then one `gh repo view`) and kept for the process, so a poll never waits on it. This instance's `busy` and `questions` come from its own conversations and open questions; every other instance's from its `status` action over loopback, waiting at most 1.5 s. One that does not answer in time is listed without them.
   - `pin`, `{ pinned? }` → `{ pinned }`: the shared pin, written first when `pinned` is given.
-- `web.tsx`: mounts the Solid rail and phone picker.
-- `rail.solid.tsx` and `phone.solid.tsx`: the desktop/tablet rail and phone picker.
+- `rail.solid.tsx` and `phone.solid.tsx`: the desktop/tablet rail and phone picker, registered in `web.solid.tsx`.
 - `list.solid.tsx`: the shared list read, visible-tab polling, link state and opening bar.

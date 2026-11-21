@@ -3,7 +3,7 @@ import { markdownText } from '@/components/markdown/parse.ts'
 import { dueStatus } from '../../lib/calendar-day.ts'
 import { openQuestion } from '../../lib/message-state.ts'
 import type { Message } from '../messages/refs.ts'
-import type { InboxItem } from './ui.tsx'
+import type { InboxItem } from './points.ts'
 
 export const SURFACE = 'inbox'
 export const SELECTED = 'ext.inbox.selected'

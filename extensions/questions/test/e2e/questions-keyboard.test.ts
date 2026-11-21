@@ -173,8 +173,7 @@ it('answers a decisions card with letters, arrows and Enter', async () => {
     name: `Send: answer to message ${second.id}`,
     exact: true,
   })
-  const box = (await sendNext.boundingBox())!
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await sendNext.hover()
   // Released early, the hold is an ordinary click: Send with its undo window.
   await page.mouse.down()
   await page.waitForTimeout(400)
@@ -183,6 +182,7 @@ it('answers a decisions card with letters, arrows and Enter', async () => {
   await sendNext.waitFor()
   const picked = async () =>
     (await log())?.messages.find((m) => m.re === second.id && m.from === 'user')
+  await sendNext.hover()
   const held = Date.now()
   await page.mouse.down()
   await until(async () => !!(await picked()))

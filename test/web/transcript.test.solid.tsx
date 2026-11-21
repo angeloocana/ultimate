@@ -27,10 +27,10 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 
 import { Transcript } from '../../web/src/app/transcript.solid.tsx'
 import { registry, store } from '../../web/src/sdk/client.ts'
-import { useTranscript } from '../../web/src/sdk/hooks.ts'
-import { island } from '../../web/src/sdk/island.tsx'
+import { useTranscript } from '../../web/src/compat/hooks.ts'
 import { ConversationScope } from '../../web/src/sdk/solid.ts'
-import type { EntryRenderer } from '../../web/src/sdk/types.ts'
+import type { EntryRecord } from '@earendil-works/pi-durable'
+import type { ReactNode } from 'react'
 import { renderSolid } from './solid-dom-setup.ts'
 
 const view = (id: number, text: string): StreamedView =>
@@ -48,7 +48,7 @@ const view = (id: number, text: string): StreamedView =>
     docs: {},
   }) as unknown as StreamedView
 
-const ReactNote: EntryRenderer = ({ entry, core }) =>
+const ReactNote = ({ entry, core }: { entry: EntryRecord; core: ReactNode }) =>
   h(
     'aside',
     { 'data-react-note': '' },
@@ -60,13 +60,16 @@ function SolidNote(props: { entry: { data?: { text?: string } }; core: unknown }
   return <em data-solid-note>{props.entry.data?.text}</em>
 }
 
-it('renders its scoped conversation, mounting React renderers through the bridge and island(C) as Solid', async () => {
+it('renders its scoped conversation, mounting a web.tsx renderer through the compat layer and web.solid.tsx entries and slots as Solid', async () => {
   await registry.setLoaders({
     'extensions/react-note/web.tsx': async () => ({
       default: { entries: { 'probe.note': ReactNote } },
     }),
-    'extensions/solid-note/web.tsx': async () => ({
-      default: { entries: { 'pi.user': island(SolidNote as never) } },
+    'extensions/solid-note/web.solid.tsx': async () => ({
+      default: {
+        entries: { 'pi.user': SolidNote },
+        slots: { 'transcript.top': [() => <b data-top-overlay>top</b>] },
+      },
     }),
   })
   vi.spyOn(store, 'getState').mockReturnValue({
@@ -90,4 +93,6 @@ it('renders its scoped conversation, mounting React renderers through the bridge
   expect(transcript.querySelector('[data-solid-note]')).not.toBeNull()
   expect(transcript.textContent).not.toContain('shown')
   expect(transcript.querySelectorAll('[data-entry-id]')).toHaveLength(2)
+  const top = transcript.querySelector('[data-top-overlay]')!
+  expect(top.parentElement?.className).not.toContain('contents')
 })

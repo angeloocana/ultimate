@@ -9,8 +9,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible.solid.tsx'
-import { Provided } from '@/sdk/parts.solid.tsx'
 import {
+  Provided,
   cn,
   formatTokens,
   prettyName,

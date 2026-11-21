@@ -10,7 +10,7 @@ import {
   UNLOADED,
 } from '../../items.ts'
 import type { Anchor, Selection } from '../../items.ts'
-import type { InboxItem } from '../../ui.tsx'
+import type { InboxItem } from '../../points.ts'
 import type { Message } from '../../../messages/refs.ts'
 
 const ask = (id: number, at: number, fields: Partial<Message> = {}): Message => ({
@@ -39,7 +39,7 @@ const item = (key: string, at: number): InboxItem => ({
   at,
   tag: 'shell',
   title: key,
-  pane: null,
+  pane: () => null,
 })
 
 it('lists the open questions to the user and the provided items, oldest first', () => {

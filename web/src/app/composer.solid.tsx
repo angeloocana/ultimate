@@ -49,7 +49,7 @@ import {
   useViewport,
   writerNow,
   writingAs,
-} from '@/sdk/solid'
+} from '../sdk/hooks.ts'
 import type { ModelsResponse } from '../../../shared/protocol.ts'
 import { imageMimeTypes } from '../../../shared/protocol.ts'
 import {
@@ -58,7 +58,7 @@ import {
   Slot,
   useAllProvided,
   useProvided,
-} from '../sdk/react-island.solid.tsx'
+} from '../sdk/contribution.solid.tsx'
 import { Attached, createAttach } from './attach.solid.tsx'
 import { splitAttachments, withAttachments } from './attachments.ts'
 import type { DraftFile, PastedImage } from './attachments.ts'
@@ -277,8 +277,12 @@ function ComposerEditor(props: { dock?: boolean }) {
   const [placeholder, setPlaceholder] = createSignal<string>()
   const models = useModels()
   const viewport = useViewport()
-  const [foldTarget, setFoldTarget] = createSignal(statusTarget())
-  onSettled(() => subscribeStatusTarget(() => setFoldTarget(statusTarget())))
+  const [foldTarget, setFoldTarget] = createSignal<HTMLElement | null>(null)
+  onSettled(() => {
+    const unsubscribe = subscribeStatusTarget(() => setFoldTarget(statusTarget()))
+    setFoldTarget(statusTarget())
+    return unsubscribe
+  })
   const foldStatus = createMemo(() =>
     viewport() === 'phone' && scoped === null && !props.dock ? foldTarget() : null,
   )

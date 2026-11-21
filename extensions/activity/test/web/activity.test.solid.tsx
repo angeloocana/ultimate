@@ -190,8 +190,10 @@ it('renders the live rows and opens the landing at its entry, with Review using 
 
   const review = vi.fn<(spec: string, who: string) => void>()
   await registry.setLoaders({
-    '/extensions/review/web.tsx': async () => ({
-      default: { provides: [provide(Review, (spec) => () => review(spec, writerNow()))] },
+    '/extensions/review/web.solid.tsx': async () => ({
+      default: {
+        provides: [provide(Review, (spec) => () => () => review(spec(), writerNow()))],
+      },
     }),
   })
   flush()
@@ -260,7 +262,7 @@ it('filters problems and time through durable state, and offers System only when
   )
 
   await registry.setLoaders({
-    '/extensions/system/web.tsx': async () => ({
+    '/extensions/system/web.solid.tsx': async () => ({
       default: {
         surfaces: [{ id: 'system', title: 'System', icon: () => null, component: () => null }],
       },
