@@ -32,8 +32,8 @@ export type InboxItem = {
   pane: ReactNode
 }
 
-/** Every provider's items; the Inbox, its sidebar row and the To-dos' "For you" count merge them with the questions. */
-export const InboxItems = definePoint<null, InboxItem[]>('inbox.items')
+/** Every provider's items, or undefined while loading. Return an empty array once loaded if nothing waits. */
+export const InboxItems = definePoint<null, InboxItem[] | undefined>('inbox.items')
 
 /**
  * The reading pane, taken over by another extension while it shows something about a question: `side-chat` shows the
@@ -49,12 +49,22 @@ export const QuestionPane = definePoint<
 export function Waiting({
   children,
 }: {
-  children: (entries: Entry[], messages: readonly Message[]) => ReactNode
+  children: (entries: Entry[], messages: readonly Message[], ready: boolean) => ReactNode
 }) {
-  const { messages } = useDocOf(ROOT, MessagesDoc) ?? emptyMessages
+  const log = useDocOf(ROOT, MessagesDoc)
+  const { messages } = log ?? emptyMessages
   return (
     <AllProvided input={null} point={InboxItems}>
-      {(provided) => children(inboxItems(messages, provided), messages)}
+      {(provided) =>
+        children(
+          inboxItems(
+            messages,
+            provided.filter((items) => items !== undefined),
+          ),
+          messages,
+          !!log && provided.every((items) => items !== undefined),
+        )
+      }
     </AllProvided>
   )
 }

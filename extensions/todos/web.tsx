@@ -13,9 +13,9 @@ function TodoControls() {
   return useUltimate().surface === 'inbox' ? <Controls /> : null
 }
 
-function useTodoItems(): InboxItem[] {
+function useTodoItems(): InboxItem[] | undefined {
   const doc = useDocOf(ROOT, TodosDoc)
-  return (doc?.items ?? [])
+  return doc?.items
     .filter((todo) => todo.owner === 'user' && todo.done === undefined)
     .map((todo) => ({
       key: `todo:${todo.id}`,

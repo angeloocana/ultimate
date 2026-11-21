@@ -74,6 +74,7 @@ export function TodoPane(props: { todo: Todo }) {
         <Button
           class="min-h-10"
           onClick={() => {
+            events.emit('inbox:open', { key: `todo:${props.todo.id}` })
             setEdit(props.todo)
             setEditing(true)
           }}

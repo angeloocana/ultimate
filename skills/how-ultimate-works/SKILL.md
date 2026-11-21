@@ -11,8 +11,8 @@ one question card. Wait for the answer before the next beat; answer a follow-up 
 whole walkthrough takes three to five minutes.
 
 Every beat's question card includes the option **Skip the rest**. When the user picks it, or types something like
-"skip", go straight to beat 5. Point at the real UI in words as you go ("the first row in the sidebar", "the To-dos tab
-on the right"). Use the user's language, not internal jargon; never mention tools, entries or actions.
+"skip", go straight to beat 5. Point at the real UI in words as you go ("the first row in the sidebar", "the Inbox").
+Use the user's language, not internal jargon; never mention tools, entries or actions.
 
 ## Beat 1: start everything with me
 
@@ -50,8 +50,8 @@ Question (choice): "Questions about this?" — All clear · How do I steer a bra
 
 ## Beat 3: your role
 
-- You decide, I build. Decisions reach you as cards like this one. Open ones wait in the To-dos tab of the right panel,
-  next to tasks.
+- You decide, I build. Decisions reach you as cards like this one. Open ones wait in your project's Inbox, next to your
+  to-dos.
 - Away for a while? ⌘K (Ctrl+K) → **Go hands-off…** gives me a goal; I decide in your place and record why.
 
 Question (choice): "How hands-on do you like to be?" — Ask me about most decisions · Only the big ones · Mostly

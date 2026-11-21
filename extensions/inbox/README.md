@@ -14,9 +14,9 @@ Another extension puts its own things to do in the Inbox (a command to run in a 
 `at` is when it started waiting, `tag` is the row's kind tag, and `pane` is the reading pane's content below the title,
 its buttons included. With `conversation` the row names it and the pane offers **Open in branch**. `priority` is
 `high`, `normal` (the default for sorting) or `low`; `due` is a date (`YYYY-MM-DD`) in the user's local calendar.
-The sidebar and the To-dos' "For you" row still count every item: they read the merged, age-ordered `Waiting` from
-`ui.tsx`. A provider that throws is left out behind its inline error card. Items are entries keyed by string; a
-question's key is `message:<id>`.
+The sidebar reads the merged, age-ordered `Waiting` from `ui.tsx`. Providers return `undefined` until loaded and
+`[]` when loaded but empty. The Inbox waits for its sources before advancing past a missing selection. A provider
+that throws is left out behind its inline error card. A question's key is `message:<id>`.
 
 ## Surface (`web.tsx`)
 
@@ -56,5 +56,5 @@ its key with `at: 0`, so the entry shows when it arrives and the selection takes
 
 - **Sidebar**: a row under @ultimate's (`sidebar.under-ultimate`), amber `Inbox · N · oldest 2h` while items wait,
   a quiet `Inbox` at zero; a click opens the surface. @ultimate's own row then says only `waits on you`.
-- **To-dos**: the panel's "For you" keeps one `Inbox · N` row, provided items counted, that opens it.
+- **To-dos**: open user-owned to-dos appear in Inbox. The to-do extension adds controls to the Inbox header.
 - ⌘K **Open Inbox**.

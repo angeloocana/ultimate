@@ -29,16 +29,28 @@ const LinkIsland = island(LinkOverlay)
 
 function Inbox() {
   return (
-    <Waiting>{(entries, messages) => <Surface entries={entries} messages={messages} />}</Waiting>
+    <Waiting>
+      {(entries, messages, ready) => (
+        <Surface entries={entries} messages={messages} ready={ready} />
+      )}
+    </Waiting>
   )
 }
 
-function Surface({ entries, messages }: { entries: Entry[]; messages: readonly Message[] }) {
+function Surface({
+  entries,
+  messages,
+  ready,
+}: {
+  entries: Entry[]
+  messages: readonly Message[]
+  ready: boolean
+}) {
   const phone = useViewport() === 'phone'
   const now = useNow(60_000)
   const today = localDay(now)
   const ordered = sortForSurface(entries, today)
-  const { shown: item, selected, setSelected } = useSelection(ordered)
+  const { shown: item, selected, setSelected } = useSelection(ordered, ready)
   const list = <ListIsland phone={phone} rows={ordered.map((entry) => toRow(entry, today))} />
   const reading = item && (
     <Reading
@@ -66,7 +78,7 @@ function Surface({ entries, messages }: { entries: Entry[]; messages: readonly M
                   </span>
                 </Header>
               )}
-              {!entries.length && !takeover ? (
+              {ready && !entries.length && !takeover ? (
                 <ZeroIsland today={answeredToday(messages, now)} />
               ) : phone ? (
                 (phonePane ?? list)

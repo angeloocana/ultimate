@@ -38,17 +38,20 @@ let page: ReturnType<typeof load>
 function load() {
   const uiState = harness.store as ReturnType<typeof freshStore>
   let select: (next: Selection) => void = () => undefined
-  function Probe({ entries }: { entries: Entry[] }) {
-    select = useSelection(entries).setSelected
-    return null
+  function Probe({ entries, ready }: { entries: Entry[]; ready: boolean }) {
+    const state = useSelection(entries, ready)
+    select = state.setSelected
+    return state.shown?.key ?? null
   }
   const settled = async () => {
     for (let round = 0; round < 3; round++) await act(() => uiState.flush())
   }
-  const root = createRoot(document.createElement('div'))
-  const show = async (entries: Entry[]) => {
-    await act(async () => root.render(h(Probe, { entries })))
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  const show = async (entries: Entry[], ready = true) => {
+    await act(async () => root.render(h(Probe, { entries, ready })))
     await settled()
+    return container.textContent
   }
   const choose = async (next: Selection) => {
     await act(async () => select(next))
@@ -61,6 +64,17 @@ beforeEach(({ onTestFinished }) => {
   Object.assign(harness, { writes: [], failures: 0, rejections: 0, store: freshStore() })
   page = load()
   onTestFinished(() => page.root.unmount())
+})
+
+it('keeps a selected to-do while its source loads and advances when it is actually done', async () => {
+  const todo = entry('todo:7', 15)
+  page.uiState.receive({ [SELECTED]: { key: todo.key, at: todo.at, open: true } })
+  expect(await page.show([a, b], false)).toBe('')
+  expect(harness.writes).toEqual([])
+  expect(await page.show([a, todo, b])).toBe(todo.key)
+  expect(harness.writes).toEqual([])
+  expect(await page.show([a, b])).toBe(b.key)
+  expect(harness.writes).toEqual([{ key: b.key, at: b.at, open: true }])
 })
 
 it('sends a rejected handoff or repair of a late link’s age once, not in a loop', async () => {
