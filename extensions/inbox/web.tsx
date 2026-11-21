@@ -67,7 +67,7 @@ function Surface({
             context={questionContext(item.message)}
             item={item.key}
             key={item.key}
-            label={`your follow-up to #${asker}`}
+            label={`branch #${asker}`}
             placeholder="Ask a follow-up without answering yet…"
             to={() => asker}
           />

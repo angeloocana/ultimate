@@ -143,8 +143,8 @@ it('adds, edits, acts on and follows up Inbox to-dos as the agent that pressed t
   await press('Save changes')
   await press('Mark done')
   expect(harness.submits).toEqual([])
-  await set('Prompt for your follow-up to @ultimate', 'textarea', 'Which cert store?')
-  await press('Send prompt to your follow-up to @ultimate')
+  await set('Prompt for @ultimate', 'textarea', 'Which cert store?')
+  await press('Send prompt to @ultimate')
   expect(document.querySelector('[data-todo-pane="3"]')?.textContent).toMatch(
     /Sent to.*#69.*Awaiting reply.*Open conversation/,
   )

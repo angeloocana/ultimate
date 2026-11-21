@@ -29,11 +29,11 @@ function TodoFollowUp(props: { todo: Todo; focus?: boolean }) {
       focus={props.focus}
       context={todoContext(props.todo)}
       item={`todo:${props.todo.id}`}
-      label={props.todo.owner === 'user' ? 'your follow-up to @ultimate' : '@ultimate to start'}
+      label="@ultimate"
       placeholder={
         props.todo.owner === 'user'
           ? 'Ask @ultimate about this to-do…'
-          : 'How should @ultimate start? Add notes or files…'
+          : 'Tell @ultimate how to start…'
       }
       to={ultimate}
     />

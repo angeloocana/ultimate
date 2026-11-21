@@ -29,7 +29,7 @@ import { FOLLOW_UPS, keepNewestReceipts, withContext } from './items.ts'
 import type { Receipt } from './items.ts'
 import { FollowUpStatusAction } from './refs.ts'
 
-const POLL_PENDING_MS = 4000
+const POLL_PENDING_MS = 2000
 const draftKey = (item: string) => `inbox.follow-up.${item}`
 
 type Images = { data: string; mimeType: string }[]
@@ -172,6 +172,8 @@ function Composer(props: {
   )
 }
 
+const showInReceipt = () => undefined
+
 function SentReceipt(props: { receipt: Receipt }) {
   const now = useNow(30_000)
   const status = useAction(
@@ -185,15 +187,15 @@ function SentReceipt(props: { receipt: Receipt }) {
       get conversation() {
         return props.receipt.to
       },
-      every: (data) =>
-        data?.status === 'replied' || data?.status === 'no-reply' ? undefined : POLL_PENDING_MS,
+      every: (data) => (!data || data.status === 'pending' ? POLL_PENDING_MS : undefined),
+      onError: showInReceipt,
     },
   )
-  const state = () => status.data()?.status
   const failure = () => {
     const error = status.error()
     return error ? errorMessage(error) : undefined
   }
+  const state = () => (failure() ? undefined : status.data()?.status)
   return (
     <div
       class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border/70 bg-card/60 py-1.5 pr-1.5 pl-3 font-mono text-[11px] text-muted-foreground"
@@ -213,9 +215,9 @@ function SentReceipt(props: { receipt: Receipt }) {
       <span
         aria-live="polite"
         class={cn(
-          'flex shrink-0 items-center gap-1',
+          'flex min-w-0 items-center gap-1',
           state() === 'replied' && 'text-success',
-          failure() && !state() && 'text-error',
+          failure() && 'text-error',
         )}
       >
         <Switch
@@ -235,7 +237,7 @@ function SentReceipt(props: { receipt: Receipt }) {
           <Match when={state() === 'no-reply'}>
             <CircleSlash aria-hidden="true" class="size-3" /> No reply
           </Match>
-          <Match when={failure() && !state()}>
+          <Match when={failure()}>
             <span class="break-words" title={failure()}>
               Couldn’t check reply: {failure()}
             </span>
