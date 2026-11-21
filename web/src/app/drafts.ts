@@ -11,9 +11,16 @@ export type Draft = {
   revision: number
 }
 
-const draftsAndSubmissions = new Map<number | undefined, ReturnType<typeof createDraft>>()
-function createDraft(id: number | undefined) {
-  const key = id === undefined ? undefined : `ultimate.draft.${id}`
+type DraftTarget = number | string | undefined
+
+const draftsAndSubmissions = new Map<DraftTarget, ReturnType<typeof createDraft>>()
+function createDraft(id: DraftTarget) {
+  const key =
+    typeof id === 'string'
+      ? `ultimate.prompt-draft.${id}`
+      : id === undefined
+        ? undefined
+        : `ultimate.draft.${id}`
   let value: Draft = {
     text: key ? (localStorage.getItem(key) ?? '') : '',
     images: key ? storedImages(key) : [],
@@ -43,7 +50,7 @@ function createDraft(id: number | undefined) {
 
 export type DraftStore = ReturnType<typeof createDraft>
 
-export function getDraft(id: number | undefined) {
+export function getDraft(id: DraftTarget) {
   if (!draftsAndSubmissions.has(id)) draftsAndSubmissions.set(id, createDraft(id))
   return draftsAndSubmissions.get(id)!
 }

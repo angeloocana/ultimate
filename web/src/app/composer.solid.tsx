@@ -50,7 +50,7 @@ import {
   writerNow,
   writingAs,
 } from '@/sdk/solid'
-import type { ModelsResponse } from '../../../shared/protocol.ts'
+import type { ModelsResponse, SubmitRequest } from '../../../shared/protocol.ts'
 import { imageMimeTypes } from '../../../shared/protocol.ts'
 import {
   Contributed,
@@ -242,7 +242,7 @@ function QueuedRow(props: { item: InboxItem; cancel: JSX.Element }) {
   )
 }
 
-function createDraftState(id: () => number | undefined) {
+function createDraftState(id: () => Parameters<typeof getDraft>[0]) {
   const draft = createMemo(() => getDraft(id()))
   const [changes, setChanges] = createSignal(0)
   const value = createMemo((): Draft => {
@@ -259,16 +259,37 @@ function createDraftState(id: () => number | undefined) {
   return { draft, value }
 }
 
-function ComposerEditor(props: { dock?: boolean }) {
+type PromptComposerProps = {
+  draftKey: string
+  label: string
+  placeholder: string
+  onSend: (text: string, images: NonNullable<SubmitRequest['images']>) => Promise<void>
+}
+
+export function PromptComposer(props: PromptComposerProps) {
+  return (
+    <For each={[props.draftKey]}>
+      {(draftKey) => <ComposerEditor draftKey={draftKey} prompt={props} />}
+    </For>
+  )
+}
+
+function ComposerEditor(props: {
+  dock?: boolean
+  draftKey?: string
+  prompt?: PromptComposerProps
+}) {
+  const prompt = () => props.prompt
   const conversation = useConversation()
   const scoped = useContext(ConversationScope)
-  const target = useContext(ComposerRedirect)
-  const id = createMemo(() => conversation().id)
-  const loading = createMemo(() => conversation().loading)
-  const busy = createMemo(() => conversation().busy)
-  const inbox = createMemo(() => conversation().inbox)
+  const composerRedirect = useContext(ComposerRedirect)
+  const target = () => (prompt() ? undefined : composerRedirect())
+  const id = createMemo(() => (prompt() ? undefined : conversation().id))
+  const loading = createMemo(() => !prompt() && conversation().loading)
+  const busy = createMemo(() => !prompt() && conversation().busy)
+  const inbox = createMemo(() => (prompt() ? [] : conversation().inbox))
   const queued = createMemo(() => inbox().filter((item) => item.mode !== 'write'))
-  const { draft, value } = createDraftState(id)
+  const { draft, value } = createDraftState(() => props.draftKey ?? id())
   const text = () => value().text
   const images = () => value().images
   const files = () => value().files
@@ -278,7 +299,11 @@ function ComposerEditor(props: { dock?: boolean }) {
   const models = useModels()
   const viewport = useViewport()
   const [foldTarget, setFoldTarget] = createSignal(statusTarget())
-  onSettled(() => subscribeStatusTarget(() => setFoldTarget(statusTarget())))
+  createEffect(
+    () => !prompt(),
+    (conversationPrompt) =>
+      conversationPrompt ? subscribeStatusTarget(() => setFoldTarget(statusTarget())) : undefined,
+  )
   const foldStatus = createMemo(() =>
     viewport() === 'phone' && scoped === null && !props.dock ? foldTarget() : null,
   )
@@ -299,7 +324,8 @@ function ComposerEditor(props: { dock?: boolean }) {
     upload,
   })
   const uploading = () => files().some((file) => !file.path)
-  const blocked = () => (loading() ? undefined : blockedBy(conversation().agent, models()))
+  const blocked = () =>
+    prompt() || loading() ? undefined : blockedBy(conversation().agent, models())
   const empty = () => !text().trim() && images().length === 0 && files().length === 0
   const inert = () => loading() || sending() || attach.reading()
 
@@ -323,6 +349,7 @@ function ComposerEditor(props: { dock?: boolean }) {
   async function send(whenBusy?: 'steer' | 'followUp') {
     const conversationId = id()
     const current = draft()
+    const direct = prompt()
     const redirect = target()
     if (
       loading() ||
@@ -331,7 +358,7 @@ function ComposerEditor(props: { dock?: boolean }) {
       uploading() ||
       current.get().sending ||
       attach.busy() ||
-      conversationId === undefined
+      (!direct && conversationId === undefined)
     )
       return
     const submitted = current.get()
@@ -348,8 +375,15 @@ function ComposerEditor(props: { dock?: boolean }) {
     }
     let withdrawnSteerToRestoreOnFailure: typeof input | undefined
     try {
-      if (redirect) await writingAs(who, () => redirect.send(input.text))
-      else {
+      if (direct) {
+        await writingAs(who, () =>
+          direct.onSend(
+            input.text,
+            input.images.map(({ data, mimeType }) => ({ data, mimeType })),
+          ),
+        )
+      } else if (redirect) await writingAs(who, () => redirect.send(input.text))
+      else if (conversationId !== undefined) {
         withdrawnSteerToRestoreOnFailure =
           mode === 'steer' ? await withdrawQueuedSteer(api, conversationId, inbox()) : undefined
         if (withdrawnSteerToRestoreOnFailure)
@@ -418,7 +452,7 @@ function ComposerEditor(props: { dock?: boolean }) {
 
   const [dragging, setDragging] = createSignal(false)
   onSettled(() => {
-    if (scoped !== null) return undefined
+    if (prompt() || scoped !== null) return undefined
     let depth = 0
     const carriesFiles = (event: DragEvent) => !!event.dataTransfer?.types.includes('Files')
     const enter = (event: DragEvent) => {
@@ -451,14 +485,15 @@ function ComposerEditor(props: { dock?: boolean }) {
     if (!touchKeyboard()) editor?.focus()
   })
 
-  const label = () => (id() === undefined ? 'the conversation' : `conversation #${id()}`)
+  const label = () =>
+    prompt()?.label ?? (id() === undefined ? 'the conversation' : `conversation #${id()}`)
   const status = () => <Slot fallback={failed} name="composer.status" />
 
   return (
     <div
-      class={cn(column(props.dock), 'pb-2')}
-      data-composer-target={scoped === null ? 'conversation' : 'scope'}
-      data-ui="composer"
+      class={prompt() ? 'min-w-0' : cn(column(props.dock), 'pb-2')}
+      data-composer-target={prompt() ? undefined : scoped === null ? 'conversation' : 'scope'}
+      data-ui={prompt() ? 'prompt-composer' : 'composer'}
     >
       <Show when={id()} keyed>
         {(conversationId) => (
@@ -484,14 +519,20 @@ function ComposerEditor(props: { dock?: boolean }) {
         <Textarea
           aria-label={`Prompt for ${label()}`}
           autoResize
-          class="block max-h-80 min-h-0 w-full resize-none rounded-none border-0 bg-transparent px-3.5 pt-3 pb-1 font-sans text-[14px] leading-relaxed outline-none focus-visible:border-0 focus-visible:ring-0 disabled:cursor-not-allowed"
+          class={cn(
+            'block min-h-0 w-full resize-none rounded-none border-0 bg-transparent px-3.5 pt-3 pb-1 font-sans text-[14px] leading-relaxed outline-none focus-visible:border-0 focus-visible:ring-0 disabled:cursor-not-allowed',
+            prompt() ? 'max-h-32' : 'max-h-80',
+          )}
           data-conversation={id()}
-          id={scoped === null ? 'composer-input' : `composer-input-${scoped}`}
+          id={
+            prompt() ? undefined : scoped === null ? 'composer-input' : `composer-input-${scoped}`
+          }
           onDrop={(event) => void attach.drop(event)}
           onKeyDown={onKeyDown}
           onPaste={(event) => void attach.paste(event)}
           onValueChange={update}
           placeholder={
+            prompt()?.placeholder ??
             target()?.placeholder ??
             placeholder() ??
             (busy() ? 'Steer the run, or queue a follow-up…' : 'Ask Ultimate to change something…')
@@ -506,7 +547,9 @@ function ComposerEditor(props: { dock?: boolean }) {
         />
         <div class="@container flex items-center justify-between gap-2 px-2 pt-1 pb-2">
           <div class="flex min-w-0 items-center gap-1 overflow-hidden">
-            <Slot fallback={failed} name="composer.toolbar" />
+            <Show when={!prompt()}>
+              <Slot fallback={failed} name="composer.toolbar" />
+            </Show>
           </div>
           <div class="flex max-w-full min-w-0 shrink-0 items-center gap-2">
             <span
@@ -516,7 +559,7 @@ function ComposerEditor(props: { dock?: boolean }) {
               )}
             >
               <Show
-                when={value().error ?? blocked()}
+                when={prompt() ? undefined : (value().error ?? blocked())}
                 fallback={
                   <Show when={busy() && !target()}>
                     <span class="pointer-coarse:hidden">
@@ -554,7 +597,7 @@ function ComposerEditor(props: { dock?: boolean }) {
                 type="file"
               />
             </label>
-            <Show when={!target()}>
+            <Show when={!prompt() && !target()}>
               <Slot fallback={failed} name="composer.actions" />
             </Show>
             <Show when={busy()}>
@@ -605,15 +648,28 @@ function ComposerEditor(props: { dock?: boolean }) {
         </div>
       </Form>
       <Show
-        when={foldStatus()}
-        keyed
+        when={prompt()}
         fallback={
-          <div class="flex items-center gap-3 overflow-hidden pt-1.5 font-mono text-[11px] whitespace-nowrap text-muted-foreground empty:hidden">
-            {status()}
-          </div>
+          <Show
+            when={foldStatus()}
+            keyed
+            fallback={
+              <div class="flex items-center gap-3 overflow-hidden pt-1.5 font-mono text-[11px] whitespace-nowrap text-muted-foreground empty:hidden">
+                {status()}
+              </div>
+            }
+          >
+            {(mount) => <Portal mount={mount}>{status()}</Portal>}
+          </Show>
         }
       >
-        {(mount) => <Portal mount={mount}>{status()}</Portal>}
+        <Show when={value().error}>
+          {(problem) => (
+            <p class="mt-1.5 text-sm break-words text-error" role="alert">
+              {problem()}
+            </p>
+          )}
+        </Show>
       </Show>
     </div>
   )

@@ -10,6 +10,8 @@ import { provisionsOf, useExtensions } from './solid.ts'
 import type { Point, SolidEntryProps } from './types.ts'
 
 export { Card } from '../app/card.solid.tsx'
+/** The composer editor and attachments for a directed prompt, with a namespaced draft separate from conversations. */
+export { PromptComposer } from '../app/composer.solid.tsx'
 /** A card that folds to one quiet line in compact mode; `label` names its button. The reader's choice survives reloads. */
 export { Fold, useFold } from '../app/fold.solid.tsx'
 export { MessageActions } from '../app/message-actions.solid.tsx'
