@@ -1,25 +1,36 @@
-import { ListTodoIcon } from 'lucide-react'
-import { defineWebExtension, island } from '@/sdk'
-import { Waiting } from '../inbox/ui.tsx'
+import { ROOT, defineWebExtension, island, provide, useDocOf, useUltimate } from '@/sdk'
+import { InboxItems } from '../inbox/ui.tsx'
+import type { InboxItem } from '../inbox/ui.tsx'
 import { TodoCall } from './call.tsx'
-import { TodoList } from './panel.solid.tsx'
+import { InboxTodoControls, TodoPane } from './inbox.solid.tsx'
+import { TodosDoc } from './refs.ts'
 
 const ModelOnlyTodoReminder = () => null
-const List = island(TodoList)
+const Controls = island(InboxTodoControls)
+const Pane = island(TodoPane)
 
-function Todos() {
-  return <Waiting>{(entries) => <List inbox={entries.length} />}</Waiting>
+function TodoControls() {
+  return useUltimate().surface === 'inbox' ? <Controls /> : null
+}
+
+function useTodoItems(): InboxItem[] {
+  const doc = useDocOf(ROOT, TodosDoc)
+  return (doc?.items ?? [])
+    .filter((todo) => todo.owner === 'user' && todo.done === undefined)
+    .map((todo) => ({
+      key: `todo:${todo.id}`,
+      at: todo.at,
+      tag: 'to-do',
+      title: todo.text,
+      priority: todo.priority,
+      due: todo.due,
+      pane: <Pane todo={todo} />,
+    }))
 }
 
 export default defineWebExtension({
+  slots: { 'header.right': [TodoControls] },
   tools: { todo: TodoCall },
   entries: { 'todos.note': ModelOnlyTodoReminder },
-  panels: [{ id: 'todos', title: 'To-dos', icon: ListTodoIcon, component: Todos, order: 0 }],
-  commands: [
-    {
-      id: 'todos.open',
-      title: 'Show to-dos',
-      run: (context) => context.openPanel('todos'),
-    },
-  ],
+  provides: [provide(InboxItems, useTodoItems)],
 })

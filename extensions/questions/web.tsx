@@ -29,7 +29,7 @@ export default defineWebExtension({
     {
       id: 'questions.open',
       title: 'Show open questions',
-      run: (context) => context.openPanel('todos'),
+      run: (context) => context.showSurface('inbox'),
     },
   ],
   provides: [provide(MessageAnswers, (message) => <MessageQuestions message={message} />)],

@@ -1,23 +1,26 @@
 # To-dos
 
-The project's short list of open loops, each owned by the user or @ultimate. No priorities, due dates, tags or
-nesting: for planned work with tasks and reviews, use `plan`.
+The project's short list of open loops, each owned by the user or @ultimate and managed in Inbox. For planned work
+with tasks and reviews, use `plan`.
 
 ## State
 
 The `todos` document on conversation 1 (conversation scope, latest history, initial on fork) holds
-`{ next, items: [{ id, text, owner: 'user' | 'ultimate', at, done? }] }`, oldest first. Text is trimmed, nonempty
-and at most 300 characters. Ticking keeps the newest 50 done items and drops older ones; open items are never dropped.
+`{ next, items: [{ id, text, owner: 'user' | 'ultimate', at, done?, priority?, due? }] }`, oldest first. Text is
+trimmed, nonempty and at most 300 characters. Priority is `high`, `normal` (the default), or `low`. A due date is a
+calendar day (`YYYY-MM-DD`); old items have no deadline. Ticking keeps the newest 50 done items and drops older ones;
+open items are never dropped.
 
 ## Agents
 
-`todo {action: 'add', text, owner} | {action: 'done', id} | {action: 'list'}` belongs to @ultimate: it is deferred
+`todo {action: 'add', text, owner, priority?, due?} | {action: 'done', id} | {action: 'list'}` belongs to @ultimate: it is deferred
 and named in `agents/ultimate.md`, and any other caller is refused. A coordinator that wants something on the list
 asks @ultimate.
 
 Whenever the open list changed since @ultimate last heard it, the input that starts its next run goes in after a
 `todos.note` entry listing its open to-dos and the user's, by id (`No to-dos are open.` once the last one is ticked).
-An unchanged list adds nothing, and the note is never part of the system prompt, so the prompt cache holds.
+Due-today and overdue status use the host’s calendar, so the note can change without an edit; it never starts a
+run on its own. An unchanged list adds nothing. The note is never part of the system prompt, so the prompt cache holds.
 
 ## Other projects
 
@@ -25,17 +28,16 @@ Each project keeps its own list. Another project's @ultimate reads it with codem
 `ultimate.doc('todos', 1, { project })` (see [codemode](../codemode/README.md#other-projects)) and asks this
 project's @ultimate to add one with `ultimate.tell`.
 
-## Panel
+## Inbox
 
-The first tab of the right panel: one amber `Inbox · N` row while questions wait on the user (read live from
-Messages, never copied; a click opens the Inbox, which lists and answers them), the user's own to-dos, then
-@ultimate's, an add field, and the done ones folded away. The header counts questions apart from to-dos. An open to-do's ▶ button (on hover or focus) sends @ultimate, as the
-user, `Work on to-do #<id>: <text>` (`Help me with to-do #<id>: …` for the user's own), after its current run if
-it is busy, and opens its conversation. ⌘K “Show open questions” opens this tab.
+Open to-dos for the user appear beside open questions, under keys like `todo:12`. Tap a to-do to edit it, mark it done,
+or ask @ultimate for help. **Add** creates a to-do for either owner. The header’s menu holds **@ultimate’s tasks** and
+**Completed to-dos**; neither counts toward what waits on the user. Completed items can be reopened. Asking for help or
+starting an agent-owned to-do sends @ultimate a follow-up as the user and opens its conversation.
 
 ## Extensions
 
-Server code adds with `host.want(TodosApi)?.add({ text, owner, key? })` (`api.ts`), which returns the to-do. It is
+Server code adds with `host.want(TodosApi)?.add({ text, owner, key?, priority?, due? })` (`api.ts`), which returns the to-do. It is
 not core tier: to-dos are optional, and nothing in the core needs them.
 
 A `key` (nonempty, at most 200 characters) makes an add idempotent: the same key again adds nothing and returns the
@@ -45,8 +47,10 @@ forgotten, and using it again adds a new to-do. Without a key every add adds.
 
 ## Actions
 
-All user-only, for the panel; the HTTP endpoint still calls them.
+All user-only; the HTTP endpoint still calls them.
 
-- `add { text, owner, key? }` → the new to-do, or the one `key` already added (above).
+- `add { text, owner, key?, priority?, due? }` → the new to-do, or the one `key` already added (above).
+- `update { id, text?, priority?, due? }` → the edited to-do. Omit fields to leave them unchanged, or pass `due: null`
+  to clear the date.
 - `done { id }` → the to-do, ticked.
 - `reopen { id }` → the to-do, open again.
