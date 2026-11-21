@@ -92,7 +92,7 @@ export async function buildSeed(host: ExtensionHost, prepared: Prepared): Promis
       if (!memories[slug]) throw new Error(`Chapter seed lost user memory ${slug}`)
     const todos = (await exportedDocument<{ items: Todo[] }>(host, tx, 'todos')).items
       .filter((item) => item.done === undefined)
-      .map(({ text, owner }) => ({ text, owner }))
+      .map(({ text, owner, priority, due }) => ({ text, owner, priority, due }))
     const own = (await tx.doc(BuiltInDoc, ROOT_CONVERSATION_ID)).id
     const builtIn = automations.find((item) => item.id === own)
     const ownPause = (await tx.doc(PauseDoc, ROOT_CONVERSATION_ID)).id

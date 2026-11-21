@@ -9,7 +9,7 @@ export type Seed = {
   from: { name: string; number: number }
   learned: string[]
   memories: Record<string, MemoryItem>
-  todos: Pick<Todo, 'text' | 'owner'>[]
+  todos: Pick<Todo, 'text' | 'owner' | 'priority' | 'due'>[]
   questions: { text: string; ref: string }[]
   automations: {
     name: string

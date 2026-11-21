@@ -1,7 +1,9 @@
 import type { ConversationId, GenerationHooks, Tx } from '@earendil-works/pi-durable'
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
-import { expect, it } from 'vitest'
-import todosExtension, { add, DONE_LIMIT, mark, noteFor, Todos } from '../server.ts'
+import { compile } from '@earendil-works/pi-schema'
+import { expect, it, vi } from 'vitest'
+import todosExtension, { actions, add, DONE_LIMIT, mark, noteFor, Todos } from '../server.ts'
+import type { ActionContext } from '../../../server/actions.ts'
 import type { ExtensionHost } from '../../../server/extensions.ts'
 import type { TodosService } from '../api.ts'
 
@@ -32,36 +34,75 @@ const list = async (tx: Tx) => (await tx.doc(Todos, 1 as ConversationId)).items
 
 it('adds to-dos by owner and refuses empty text or an unknown owner', async () => {
   const { tx } = fakeTx()
-  expect(await add(tx, '  Deploy fleet  ', 'ultimate')).toMatchObject({
+  expect(await add(tx, { text: '  Deploy fleet  ', owner: 'ultimate' })).toEqual({
     id: 1,
     text: 'Deploy fleet',
+    owner: 'ultimate',
+    at: expect.any(Number),
   })
-  expect(await add(tx, 'Rotate the key', 'user')).toMatchObject({ id: 2, owner: 'user' })
-  await expect(add(tx, ' ', 'user')).rejects.toThrow('nonempty')
-  await expect(add(tx, 'x', 'lander')).rejects.toThrow('owner')
+  expect(await add(tx, { text: 'Rotate the key', owner: 'user' })).toMatchObject({
+    id: 2,
+    owner: 'user',
+  })
+  await expect(add(tx, { text: ' ', owner: 'user' })).rejects.toThrow('nonempty')
+  await expect(add(tx, { text: 'x', owner: 'lander' })).rejects.toThrow('owner')
   expect((await list(tx)).map((todo) => todo.id)).toEqual([1, 2])
 })
 
 it('adds through TodosApi once per key, even after the to-do left the list', async () => {
   const { tx } = fakeTx()
   let service: TodosService | undefined
-  todosExtension({
+  const host = {
     implement: (_api: unknown, value: TodosService) => (service = value),
     harness: () => ({ commit: (fn: (tx: Tx) => unknown) => fn(tx) }),
-  } as unknown as ExtensionHost)
-  const first = await service!.add({ text: 'Call back', owner: 'user', key: 'mail-42' })
-  expect(first).toMatchObject({ id: 1, text: 'Call back', owner: 'user' })
-  expect(await service!.add({ text: 'Call back', owner: 'user', key: 'mail-42' })).toEqual(first)
+  } as unknown as ExtensionHost
+  todosExtension(host)
+  const fields = { text: 'Call back', owner: 'user', priority: 'high', due: '2028-02-29' } as const
+  const first = await service!.add({ ...fields, key: 'mail-42' })
+  expect(first).toMatchObject({ id: 1, ...fields })
+  const edited = await actions.update({ id: first.id, priority: 'low' }, { host } as ActionContext)
+  expect(edited).toEqual({ ...first, priority: 'low' })
+  expect(await service!.add({ ...fields, key: 'mail-42' })).toEqual(edited)
   expect((await list(tx)).map((todo) => todo.id)).toEqual([1])
   // Ticked out of the list: the key still returns the to-do as it was added, and adds nothing.
   ;(await tx.doc(Todos, 1 as ConversationId)).items = []
-  expect(await service!.add({ text: 'Call back', owner: 'user', key: 'mail-42' })).toEqual(first)
+  expect(await service!.add({ ...fields, key: 'mail-42' })).toEqual(first)
   expect(await list(tx)).toEqual([])
+})
+
+it('adds and edits through user actions, clearing the due date without changing ownership', async () => {
+  const { tx } = fakeTx()
+  const host = {
+    harness: () => ({ commit: (fn: (tx: Tx) => unknown) => fn(tx) }),
+  } as unknown as ExtensionHost
+  const ctx = { host } as ActionContext
+  const fields = { text: 'Ship it', owner: 'user', priority: 'normal', due: '2026-11-23' }
+  const added = await actions.add(fields, ctx)
+  expect(added).toMatchObject(fields)
+  const updated = await actions.update(
+    { id: added.id, text: '  Ship on Tuesday  ', priority: 'high', due: '2026-11-24' },
+    ctx,
+  )
+  expect(updated).toEqual({
+    ...added,
+    text: 'Ship on Tuesday',
+    priority: 'high',
+    due: '2026-11-24',
+  })
+  const cleared = await actions.update({ id: added.id, due: null }, ctx)
+  expect(cleared).toEqual({
+    id: added.id,
+    at: added.at,
+    text: 'Ship on Tuesday',
+    owner: 'user',
+    priority: 'high',
+  })
+  expect(await list(tx)).toEqual([cleared])
 })
 
 it('ticks and reopens a to-do, keeping only the newest done ones', async () => {
   const { tx } = fakeTx()
-  for (let i = 0; i < DONE_LIMIT + 2; i++) await add(tx, `t${i}`, 'ultimate')
+  for (let i = 0; i < DONE_LIMIT + 2; i++) await add(tx, { text: `t${i}`, owner: 'ultimate' })
   const first = await mark(tx, 1, true)
   expect(first.done).toBeTypeOf('number')
   expect((await mark(tx, 1, false)).done).toBeUndefined()
@@ -77,8 +118,8 @@ it('tells @ultimate the open list only when it changed', async () => {
   const { tx } = fakeTx()
   const content = async () => (await noteFor(tx, ULTIMATE, 0))?.entries[0].model[0].content
   expect(await content()).toBeUndefined()
-  await add(tx, 'Mine', 'ultimate')
-  await add(tx, 'Theirs', 'user')
+  await add(tx, { text: 'Mine', owner: 'ultimate' })
+  await add(tx, { text: 'Theirs', owner: 'user' })
   expect(await content()).toBe(
     "Open to-dos (todo tool: done when finished):\nYours:\n- 1: Mine\nThe user's:\n- 2: Theirs",
   )
@@ -87,6 +128,21 @@ it('tells @ultimate the open list only when it changed', async () => {
   await mark(tx, 2, true)
   expect(await content()).toBe('No to-dos are open.')
   expect(await content()).toBeUndefined()
+})
+
+it('updates the open note at local midnight on the due day and the next day only', async () => {
+  const { tx } = fakeTx()
+  const due = '2026-11-23'
+  await add(tx, { text: 'Submit the form', owner: 'user', priority: 'high', due })
+  const content = async (day: number, hour = 0) =>
+    (await noteFor(tx, ULTIMATE, new Date(2026, 10, day, hour).getTime()))?.entries[0].model[0]
+      .content
+  expect(await content(21)).toContain(`priority: high, due: ${due}]`)
+  expect(await content(22, 23)).toBeUndefined()
+  expect(await content(23)).toContain(`due: ${due} (today)`)
+  expect(await content(23, 23)).toBeUndefined()
+  expect(await content(24)).toContain(`due: ${due} (overdue)`)
+  expect(await content(25)).toBeUndefined()
 })
 
 it("keeps the todo tool to @ultimate and the note to @ultimate's inputs", async () => {
@@ -104,12 +160,36 @@ it("keeps the todo tool to @ultimate and the note to @ultimate's inputs", async 
       undefined as never,
     )
   await expect(run(9, { action: 'list' })).rejects.toThrow('Only @ultimate')
-  expect(await run(ULTIMATE, { action: 'add', text: 'Ship it', owner: 'user' })).toEqual({
-    output: [{ type: 'text', text: 'Added 1 for user: Ship it' }],
-  })
-  expect(await run(ULTIMATE, { action: 'list' })).toEqual({
-    output: [{ type: 'text', text: "The user's:\n- 1: Ship it" }],
-  })
+  const input = {
+    action: 'add',
+    text: 'Ship it',
+    owner: 'user',
+    priority: 'high',
+    due: '2026-11-23',
+  }
+  expect(compile(tool.parameters).check(input)).toBe(true)
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 10, 23, 12).getTime())
+  try {
+    expect(await run(ULTIMATE, input)).toEqual({
+      output: [
+        {
+          type: 'text',
+          text: 'Added 1 for user [priority: high, due: 2026-11-23 (today)]: Ship it',
+        },
+      ],
+    })
+    expect(await run(ULTIMATE, { action: 'list' })).toEqual({
+      output: [
+        {
+          type: 'text',
+          text: "The user's:\n- 1 [priority: high, due: 2026-11-23 (today)]: Ship it",
+        },
+      ],
+    })
+    expect((await list(tx))[0]).toMatchObject({ priority: 'high', due: '2026-11-23' })
+  } finally {
+    clock.mockRestore()
+  }
   const hooks = extension.hooks![0].handlers as GenerationHooks
   const before = (conversationId: number) =>
     hooks.beforeInput({} as never, { tx, conversationId } as never, BACKGROUND_CONTEXT)
