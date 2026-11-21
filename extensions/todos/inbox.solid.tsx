@@ -9,12 +9,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.solid.tsx'
-import { ROOT, api, errorMessage, events, useDocOf } from '@/sdk/solid'
+import { Provided, ROOT, api, errorMessage, events, useDocOf } from '@/sdk/solid'
 import { FollowUp } from '../inbox/ui.solid.tsx'
 import { StandingAction } from '../subagents/refs.ts'
 import { TodoEditor } from './editor.solid.tsx'
 import { DoneAction, ReopenAction, TodosDoc } from './refs.ts'
 import type { Todo } from './refs.ts'
+import { TodoReferences } from './ui.solid.tsx'
 
 const dialog = 'max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto p-5 sm:max-w-[28rem]'
 const ultimate = () => api.action(StandingAction, { name: 'ultimate' })
@@ -60,6 +61,7 @@ export function TodoPane(props: { todo: Todo }) {
   const { failure, run } = useTodoAction()
   return (
     <div class="grid gap-3" data-todo-pane={props.todo.id}>
+      <Provided input={{ id: props.todo.id, text: props.todo.text }} point={TodoReferences} />
       <div class="flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground">
         <span>Priority: {props.todo.priority ?? 'normal'}</span>
         <Show when={props.todo.due}>{(date) => <time datetime={date()}>Due {date()}</time>}</Show>

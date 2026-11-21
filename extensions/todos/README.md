@@ -39,6 +39,10 @@ shows where it went and whether a reply arrived, without leaving the Inbox.
 
 ## Extensions
 
+The `todos.references` Solid point (`TodoReferences` in `ui.solid.tsx`) receives `{ id, text }` for the opened
+Inbox to-do. Use it to render references alongside the to-do's actions; it does not change the list row or title.
+User extensions can declare the point by that name with `definePoint` from `@/sdk/solid`.
+
 Server code adds with `host.want(TodosApi)?.add({ text, owner, key?, priority?, due? })` (`api.ts`), which returns the to-do. It is
 not core tier: to-dos are optional, and nothing in the core needs them.
 
