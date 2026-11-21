@@ -12,11 +12,12 @@ import type { ConversationId, Tx } from '@earendil-works/pi-durable'
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
 import { actingAs } from '../../lib/acting-as.ts'
 import { implementAction } from '../../lib/actions.ts'
+import { dueStatus, isCalendarDay, localDay } from '../../lib/calendar-day.ts'
 import type { ExtensionHost } from '../../server/extensions.ts'
 import { Standing } from '../subagents/api.ts'
 import { TodosApi } from './api.ts'
-import { AddAction, DoneAction, ReopenAction, TodosDoc } from './refs.ts'
-import type { Todo } from './refs.ts'
+import { AddAction, DoneAction, ReopenAction, TodosDoc, UpdateAction } from './refs.ts'
+import type { AddTodoArgs, Todo, TodoPriority, UpdateTodoArgs } from './refs.ts'
 
 export const DONE_LIMIT = 50
 const TEXT_CHARS = 300
@@ -53,41 +54,83 @@ const OldestFirstIdempotencyReceipts = defineDoc<{ keys: { key: string; todo: To
 export const docs = [Todos, OldestFirstIdempotencyReceipts]
 
 const OWNERS = ['user', 'ultimate'] as const
+const PRIORITIES = ['high', 'normal', 'low'] as const satisfies readonly TodoPriority[]
 
-export async function add(tx: Tx, text: unknown, owner: unknown, key?: unknown): Promise<Todo> {
-  if (key !== undefined && key !== null) {
-    if (typeof key !== 'string' || !key || key.length > KEY_CHARS)
-      throw new Error(`key must be a nonempty string of at most ${KEY_CHARS} characters`)
-    const keys = await tx.doc(OldestFirstIdempotencyReceipts, ROOT_CONVERSATION_ID)
-    const known = keys.keys.find((record) => record.key === key)
-    if (known) {
-      const currentTodo = (await tx.doc(Todos, ROOT_CONVERSATION_ID)).items.find(
-        (item) => item.id === known.todo.id,
-      )
-      return { ...(currentTodo ?? known.todo) }
-    }
-    const todo = await add(tx, text, owner)
-    keys.keys.push({ key, todo: { ...todo } })
-    keys.keys.splice(0, keys.keys.length - KEY_LIMIT)
-    return todo
+type Untrusted<Args> = { [K in keyof Args]?: unknown }
+
+function validText(value: unknown) {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) throw new Error('text must be nonempty')
+  if (text.length > TEXT_CHARS) throw new Error(`text must be at most ${TEXT_CHARS} characters`)
+  return text
+}
+
+function validPriority(value: unknown) {
+  if (value === undefined) return undefined
+  const priority = PRIORITIES.find((candidate) => candidate === value)
+  if (!priority) throw new Error(`priority must be ${PRIORITIES.join(', ')}`)
+  return priority
+}
+
+function validDue(value: unknown) {
+  if (value === undefined) return undefined
+  if (!isCalendarDay(value)) throw new Error('due must be a calendar date (YYYY-MM-DD)')
+  return value
+}
+
+export async function add(tx: Tx, input: Untrusted<AddTodoArgs>): Promise<Todo> {
+  const { key } = input
+  if (key != null && (typeof key !== 'string' || !key || key.length > KEY_CHARS))
+    throw new Error(`key must be a nonempty string of at most ${KEY_CHARS} characters`)
+  const receipts =
+    typeof key === 'string'
+      ? await tx.doc(OldestFirstIdempotencyReceipts, ROOT_CONVERSATION_ID)
+      : undefined
+  const known = receipts?.keys.find((record) => record.key === key)
+  if (known) {
+    const current = (await tx.doc(Todos, ROOT_CONVERSATION_ID)).items.find(
+      (item) => item.id === known.todo.id,
+    )
+    return copyTodoBeyondTransaction(current ?? known.todo)
   }
-  if (typeof text !== 'string' || !text.trim()) throw new Error('text must be nonempty')
-  if (text.trim().length > TEXT_CHARS)
-    throw new Error(`text must be at most ${TEXT_CHARS} characters`)
-  if (!OWNERS.includes(owner as Todo['owner']))
-    throw new Error("owner must be 'user' or 'ultimate'")
+  const text = validText(input.text)
+  const owner = OWNERS.find((candidate) => candidate === input.owner)
+  if (!owner) throw new Error("owner must be 'user' or 'ultimate'")
+  const priority = validPriority(input.priority)
+  const due = validDue(input.due)
   const todos = await tx.doc(Todos, ROOT_CONVERSATION_ID)
   const todo: Todo = {
     id: todos.next++,
-    text: text.trim(),
-    owner: owner as Todo['owner'],
+    text,
+    owner,
     at: Date.now(),
+    ...(priority === undefined ? {} : { priority }),
+    ...(due === undefined ? {} : { due }),
   }
   todos.items.push(todo)
+  if (receipts && typeof key === 'string') {
+    receipts.keys.push({ key, todo: copyTodoBeyondTransaction(todo) })
+    receipts.keys.splice(0, receipts.keys.length - KEY_LIMIT)
+  }
   return copyTodoBeyondTransaction(todo)
 }
 
 const copyTodoBeyondTransaction = (todo: Todo): Todo => ({ ...todo })
+
+async function update(tx: Tx, input: Untrusted<UpdateTodoArgs>) {
+  const todo = (await tx.doc(Todos, ROOT_CONVERSATION_ID)).items.find(
+    (item) => item.id === input.id,
+  )
+  if (!todo) throw new Error(`No to-do ${String(input.id)}`)
+  const text = input.text === undefined ? undefined : validText(input.text)
+  const priority = validPriority(input.priority)
+  const due = input.due === null ? undefined : validDue(input.due)
+  if (text !== undefined) todo.text = text
+  if (priority !== undefined) todo.priority = priority
+  if (due !== undefined) todo.due = due
+  else if (input.due === null) delete todo.due
+  return copyTodoBeyondTransaction(todo)
+}
 
 export async function mark(tx: Tx, id: unknown, done: boolean) {
   const todos = await tx.doc(Todos, ROOT_CONVERSATION_ID)
@@ -107,12 +150,22 @@ export async function mark(tx: Tx, id: unknown, done: boolean) {
   return copyTodoBeyondTransaction(todo)
 }
 
-const line = (todo: Todo) => `- ${todo.id}: ${todo.text}`
-export function listText(items: readonly Todo[]) {
+function metadata(todo: Todo, today: string) {
+  const fields = []
+  if (todo.priority !== undefined) fields.push(`priority: ${todo.priority}`)
+  if (todo.due !== undefined) {
+    const status = dueStatus(todo.due, today)
+    fields.push(`due: ${todo.due}${status ? ` (${status})` : ''}`)
+  }
+  return fields.length ? ` [${fields.join(', ')}]` : ''
+}
+
+export function listText(items: readonly Todo[], today: string) {
   const open = items.filter((item) => item.done === undefined)
   if (!open.length) return undefined
   const mine = open.filter((item) => item.owner === 'ultimate')
   const theirs = open.filter((item) => item.owner === 'user')
+  const line = (todo: Todo) => `- ${todo.id}${metadata(todo, today)}: ${todo.text}`
   return [
     ...(mine.length ? ['Yours:', ...mine.map(line)] : []),
     ...(theirs.length ? ["The user's:", ...theirs.map(line)] : []),
@@ -121,7 +174,7 @@ export function listText(items: readonly Todo[]) {
 
 export async function noteFor(tx: Tx, conversationId: ConversationId, now: number) {
   const items = (await tx.doc(Todos, ROOT_CONVERSATION_ID)).items
-  const text = listText(items)
+  const text = listText(items, localDay(now))
   const key = text ?? ''
   const seen = await tx.doc(LastOpenListCommittedWithInput, conversationId)
   if ((seen.key ?? '') === key) return undefined
@@ -145,24 +198,23 @@ export async function noteFor(tx: Tx, conversationId: ConversationId, now: numbe
   }
 }
 
-const field = (args: unknown, name: string) =>
-  args && typeof args === 'object' ? (args as Record<string, unknown>)[name] : undefined
+const fields = <Args extends object>(
+  args: Args | string | number | boolean | unknown[] | null,
+): Args | undefined => (args && typeof args === 'object' && !Array.isArray(args) ? args : undefined)
 
-export const userActions = ['add', 'done', 'reopen']
+export const userActions = ['add', 'update', 'done', 'reopen']
 export const actions = {
   add: implementAction(AddAction, (args, { host }) =>
-    host
-      .harness()
-      .commit(
-        (tx) => add(tx, field(args, 'text'), field(args, 'owner'), field(args, 'key')),
-        context,
-      ),
+    host.harness().commit((tx) => add(tx, fields(args) ?? {}), context),
+  ),
+  update: implementAction(UpdateAction, (args, { host }) =>
+    host.harness().commit((tx) => update(tx, fields(args) ?? {}), context),
   ),
   done: implementAction(DoneAction, (args, { host }) =>
-    host.harness().commit((tx) => mark(tx, field(args, 'id'), true), context),
+    host.harness().commit((tx) => mark(tx, fields(args)?.id, true), context),
   ),
   reopen: implementAction(ReopenAction, (args, { host }) =>
-    host.harness().commit((tx) => mark(tx, field(args, 'id'), false), context),
+    host.harness().commit((tx) => mark(tx, fields(args)?.id, false), context),
   ),
 }
 
@@ -171,8 +223,7 @@ const callerIsUltimate = (tx: Tx, id: ConversationId) =>
 
 export default function todosExtension(host: ExtensionHost) {
   host.implement(TodosApi, {
-    add: ({ text, owner, key }) =>
-      host.harness().commit((tx) => add(tx, text, owner, key), context),
+    add: (input) => host.harness().commit((tx) => add(tx, input), context),
   })
   return defineExtension({
     name: 'todos',
@@ -191,31 +242,38 @@ export default function todosExtension(host: ExtensionHost) {
         name: 'todo',
         deferred: true,
         description:
-          "The project's to-dos, owned by you ('ultimate') or the user ('user'): add {text, owner}, done {id}, list. Keep open loops here, not in codemode store; the user sees and ticks them in the To-dos panel, and their open questions already show there, so never add a to-do for a question. Other projects read this list with ultimate.doc('todos', 1, {project}) and ask you to add through ultimate.tell.",
+          "The project's to-dos, owned by you ('ultimate') or the user ('user'): add {text, owner, priority?, due?}, done {id}, list. Use priority 'high', 'normal' or 'low' and a local calendar due date (YYYY-MM-DD). The user manages to-dos in the Inbox; never add one for a question, which already appears there. Keep open loops here, not in codemode store. Other projects read this list with ultimate.doc('todos', 1, {project}) and ask you to add through ultimate.tell.",
         parameters: obj({
           action: strEnum(['add', 'done', 'list']),
           text: opt(str()),
-          owner: opt(strEnum(['user', 'ultimate'])),
+          owner: opt(strEnum(OWNERS)),
+          priority: opt(strEnum(PRIORITIES)),
+          due: opt(str({ description: 'Local calendar date (YYYY-MM-DD)' })),
           id: opt(int({ minimum: 1 })),
         }),
         execute: async function executeOnceWithoutReplay(args, api, ctx) {
           const callerIncludingSideChatOwner = await actingAs(host, api.conversationId, ctx)
-          const text = await api.commit(async (tx) => {
+          const result = await api.commit(async (tx) => {
             if (!(await callerIsUltimate(tx, callerIncludingSideChatOwner)))
               throw new Error(
                 'Only @ultimate keeps the to-dos; ask @ultimate to add one (message, reply: false).',
               )
+            const today = localDay(Date.now())
             if (args.action === 'add') {
-              const todo = await add(tx, args.text, args.owner)
-              return `Added ${todo.id} for ${todo.owner}: ${todo.text}`
+              const { text, owner, priority, due } = args
+              const todo = await add(tx, { text, owner, priority, due })
+              return `Added ${todo.id} for ${todo.owner}${metadata(todo, today)}: ${todo.text}`
             }
             if (args.action === 'done') {
               const todo = await mark(tx, args.id, true)
               return `Done ${todo.id}: ${todo.text}`
             }
-            return listText((await tx.doc(Todos, ROOT_CONVERSATION_ID)).items) ?? 'No open to-dos.'
+            return (
+              listText((await tx.doc(Todos, ROOT_CONVERSATION_ID)).items, today) ??
+              'No open to-dos.'
+            )
           }, ctx)
-          return { output: [{ type: 'text', text }] }
+          return { output: [{ type: 'text', text: result }] }
         },
       }),
     ],

@@ -147,7 +147,14 @@ async function fixture() {
         }
         const todos = await tx.doc(Todos, ROOT_CONVERSATION_ID)
         todos.items.push(
-          { id: 1, text: 'Keep this', owner: 'ultimate', at: 1 },
+          {
+            id: 1,
+            text: 'Keep this',
+            owner: 'ultimate',
+            at: 1,
+            priority: 'high',
+            due: '2026-11-23',
+          },
           { id: 2, text: 'Finished', owner: 'user', at: 1, done: 2 },
         )
         todos.next = 3
@@ -222,7 +229,9 @@ it('carries the seed into a fresh chapter once, including user memory, the hando
     { text: 'Choose 100?', ref: '#100' },
     { text: 'Question 103', ref: '#103' },
   ])
-  expect(seed.todos).toEqual([{ text: 'Keep this', owner: 'ultimate' }])
+  expect(seed.todos).toEqual([
+    { text: 'Keep this', owner: 'ultimate', priority: 'high', due: '2026-11-23' },
+  ])
   expect(seed.automations).toEqual([
     { name: 'Daily', prompt: 'Review', schedule: { kind: 'every', ms: 86400000 } },
   ])
@@ -243,8 +252,10 @@ it('carries the seed into a fresh chapter once, including user memory, the hando
   const after = await contents()
   expect(after.memory.memories).toEqual(seed.memories)
   expect((after.memory.memories as typeof seed.memories)['about-daniel'].source).toBe('#123/456')
-  expect(after.todos.items.map(({ text, owner }) => ({ text, owner }))).toEqual([
-    { text: 'Keep this', owner: 'ultimate' },
+  expect(
+    after.todos.items.map(({ text, owner, priority, due }) => ({ text, owner, priority, due })),
+  ).toEqual([
+    { text: 'Keep this', owner: 'ultimate', priority: 'high', due: '2026-11-23' },
     { text: 'Open question (the-beginning#100): Choose 100?', owner: 'user' },
     { text: 'Open question (the-beginning#103): Question 103', owner: 'user' },
     {
