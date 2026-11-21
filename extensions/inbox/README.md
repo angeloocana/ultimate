@@ -56,11 +56,11 @@ its key with `at: 0`, so the entry shows when it arrives and the selection takes
 
 ## Follow-ups (`ui.solid.tsx`)
 
-`FollowUp` is an item's own prompt box for other extensions' Solid code: `{ item, context, to, label, placeholder,
-ask?, focus? }`. It submits the item context, the user's prompt and any attachments in follow-up mode to `await to()`.
-The item links to the receiving conversation and shows the status of its most recent prompt. The read-only
-`followUpStatus { submissionId }` action checks that input in the receiving conversation: `pending`, `replied`, or
-`no-reply`. The receipt is kept in `ext.inbox.followUps` for up to 30 items, and drafts are kept per item. On a phone,
+`FollowUp` is an item's own prompt box for other extensions' Solid code: `{ item, at, context, to, label,
+placeholder, ask?, focus? }`. The user-only `submitFollowUp { item, text, images? }` action receives the prompt,
+its item context and any attachments. It admits the input in follow-up mode and records the item's latest receipt
+in the same commit. The item links to the receiving conversation; `followUpStatus { submissionId }` checks that
+specific input: `pending`, `replied`, or `no-reply`. Drafts belong to the item in the current chapter. On a phone,
 the box accounts for the space the keyboard takes so the Send button can stay in view while typing.
 
 ## Elsewhere

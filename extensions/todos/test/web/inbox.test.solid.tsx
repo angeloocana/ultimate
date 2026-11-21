@@ -5,6 +5,7 @@ import { flush } from 'solid-js'
 import { expect, it, vi } from 'vitest'
 import { ExtensionName } from '@/sdk/solid'
 import { SOURCE_HEADER } from '../../../../shared/protocol.ts'
+import type { SystemInfo } from '../../../../shared/protocol.ts'
 import { FakeSource } from '../../../../test/web/fake-source.ts'
 import { expectDistinctAgentNames } from '../../../../test/web/agent-names.ts'
 import { renderSolid } from '../../../../test/web/solid-dom-setup.ts'
@@ -13,7 +14,6 @@ import type { Todo } from '../../refs.ts'
 const harness = vi.hoisted(() => ({
   sources: [] as FakeSource[],
   actions: [] as { name: string; args: unknown; source: string | null }[],
-  submits: [] as { text: string; whenBusy?: string; images?: unknown; source: string | null }[],
 }))
 vi.mock('../../../../web/src/sdk/client.ts', async () => {
   const { createStore } = await import('../../../../web/src/sdk/store.ts')
@@ -24,14 +24,10 @@ vi.mock('../../../../web/src/sdk/client.ts', async () => {
   const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = input as string
     const source = new Headers(init?.headers).get(SOURCE_HEADER)
-    if (path === '/api/conversations/69/submit') {
-      const { text, whenBusy, images } = JSON.parse(init!.body as string) as {
-        text: string
-        whenBusy?: string
-        images?: unknown
-      }
-      harness.submits.push({ text, whenBusy, images, source })
-      return Response.json({ submissionId: 412 })
+    if (path === '/api/extensions/inbox/actions/submitFollowUp') {
+      const { args, conversationId } = JSON.parse(init!.body as string)
+      harness.actions.push({ name: 'submitFollowUp', args: { ...args, conversationId }, source })
+      return Response.json({ result: { to: conversationId, submissionId: 412, at: Date.now() } })
     }
     if (path === '/api/extensions/inbox/actions/followUpStatus') {
       const { args, conversationId } = JSON.parse(init!.body as string)
@@ -99,10 +95,20 @@ it('adds, edits, acts on and follows up Inbox to-dos as the agent that pressed t
   store.start()
   onTestFinished(() => store.stop())
   harness.sources[0].open()
+  const showChapter = async (path: string, generation: number) => {
+    harness.sources[0].send('system', {
+      process: { pid: 10, generation },
+      persistence: { path },
+    } as unknown as SystemInfo)
+    await settle()
+    flush()
+  }
+  await showChapter('/project/state.sqlite', 1)
+  const item = todo(3, 'user', 'Renew the cert')
   renderSolid(() => (
     <ExtensionName value="todos">
       <InboxTodoControls />
-      <TodoPane todo={todo(3, 'user', 'Renew the cert')} />
+      <TodoPane todo={item} />
     </ExtensionName>
   ))
   await settle()
@@ -141,13 +147,19 @@ it('adds, edits, acts on and follows up Inbox to-dos as the agent that pressed t
   await press('Edit')
   await set('To-do text', 'textarea', 'Renew the production cert')
   await press('Save changes')
-  await press('Mark done')
-  expect(harness.submits).toEqual([])
+  expect(harness.actions.some(({ name }) => name === 'submitFollowUp')).toBe(false)
   await set('Prompt for @ultimate', 'textarea', 'Which cert store?')
+  const prompt = () =>
+    document.querySelector<HTMLTextAreaElement>('[data-ui="prompt-composer"] textarea')?.value
+  await showChapter('/project/chapters/new/state.sqlite', 2)
+  expect(prompt()).toBe('')
+  await showChapter('/project/state.sqlite', 3)
+  expect(prompt()).toBe('Which cert store?')
   await press('Send prompt to @ultimate')
   expect(document.querySelector('[data-todo-pane="3"]')?.textContent).toMatch(
     /Sent to.*#69.*Awaiting reply.*Open conversation/,
   )
+  await press('Mark done')
   expect(harness.actions).toContainEqual({
     name: 'update',
     args: { id: 3, text: 'Renew the production cert' },
@@ -159,13 +171,16 @@ it('adds, edits, acts on and follows up Inbox to-dos as the agent that pressed t
     args: { name: 'ultimate' },
     source: 'agent',
   })
-  expect(harness.submits).toEqual([
-    {
+  expect(harness.actions).toContainEqual({
+    name: 'submitFollowUp',
+    args: {
+      conversationId: 69,
+      item: 'todo:3',
       text: 'About my to-do #3: Renew the cert\n\nWhich cert store?',
-      whenBusy: 'followUp',
-      source: 'agent',
+      images: [],
     },
-  ])
+    source: 'agent',
+  })
   expect(harness.actions).toContainEqual({
     name: 'followUpStatus',
     args: { submissionId: 412, conversationId: 69 },

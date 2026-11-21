@@ -11,6 +11,7 @@ import { Match, Show, Switch, createSignal, onSettled } from 'solid-js'
 import { Button } from '@/components/ui/button.solid.tsx'
 import { PromptComposer } from '@/sdk/parts.solid.tsx'
 import {
+  ROOT,
   api,
   cn,
   errorMessage,
@@ -19,40 +20,20 @@ import {
   showSurface,
   switchConversation,
   useAction,
+  useDocOf,
   useNow,
-  useUiState,
+  useStore,
   writerNow,
   writingAs,
 } from '@/sdk/solid'
 import { ConversationRef } from '../conversations/ui.solid.tsx'
-import { FOLLOW_UPS, keepNewestReceipts, withContext } from './items.ts'
-import type { Receipt } from './items.ts'
-import { FollowUpStatusAction } from './refs.ts'
+import { withContext } from './items.ts'
+import { FollowUpsDoc, FollowUpStatusAction, SubmitFollowUpAction } from './refs.ts'
+import type { FollowUpReceipt } from './refs.ts'
 
 const POLL_PENDING_MS = 2000
-const draftKey = (item: string) => `inbox.follow-up.${item}`
 
 type Images = { data: string; mimeType: string }[]
-
-async function submitFollowUp(
-  item: string,
-  prompt: string,
-  images: Images,
-  target: () => ConversationId | Promise<ConversationId>,
-  setReceipts: (update: (all: Record<string, Receipt>) => Record<string, Receipt>) => void,
-) {
-  const who = writerNow()
-  const to = await target()
-  const { submissionId } = await writingAs(who, () =>
-    api.submit(prompt, 'followUp', to, images.length ? images : undefined),
-  )
-  writingAs(who, () => {
-    events.emit('ultimate:sent', { conversationId: to })
-    setReceipts((all) =>
-      keepNewestReceipts({ ...all, [item]: { to, submissionId, at: Date.now() } }),
-    )
-  })
-}
 
 function scrollerOf(element: Element) {
   for (let at = element.parentElement; at; at = at.parentElement)
@@ -69,6 +50,7 @@ function openConversation(id: ConversationId, source: string) {
 
 type FollowUpProps = {
   item: string
+  at: number
   label: string
   placeholder: string
   to: () => ConversationId | Promise<ConversationId>
@@ -78,13 +60,30 @@ type FollowUpProps = {
 }
 
 export function FollowUp(props: FollowUpProps) {
-  const [receipts, setReceipts] = useUiState<Record<string, Receipt>>(FOLLOW_UPS, {})
-  const receipt = () => receipts()[props.item]
+  const followUps = useDocOf(() => ROOT, FollowUpsDoc)
+  const database = useStore((state) => state.system?.persistence.path)
+  const [admitted, setAdmitted] = createSignal<{ item: string; receipt: FollowUpReceipt }>()
+  const receipt = () => {
+    const remote = followUps()?.items[props.item]
+    const local = admitted()
+    return local?.item === props.item && local.receipt.submissionId >= (remote?.submissionId ?? 0)
+      ? local.receipt
+      : remote
+  }
   const [expanded, setExpanded] = createSignal(false)
   const open = () => !props.ask || expanded()
 
-  const send = (text: string, images: Images) =>
-    submitFollowUp(props.item, withContext(props.context, text), images, props.to, setReceipts)
+  const send = async (text: string, images: Images) => {
+    const who = writerNow()
+    const item = props.item
+    const prompt = withContext(props.context, text)
+    const to = await props.to()
+    const delivered = await writingAs(who, () =>
+      api.action(SubmitFollowUpAction, { item, text: prompt, images }, { conversationId: to }),
+    )
+    setAdmitted({ item, receipt: delivered })
+    writingAs(who, () => events.emit('ultimate:sent', { conversationId: to }))
+  }
 
   return (
     <div class="grid min-w-0 gap-2" data-follow-up={props.item}>
@@ -104,13 +103,21 @@ export function FollowUp(props: FollowUpProps) {
           </Button>
         }
       >
-        <Composer
-          focus={!!props.ask || !!props.focus}
-          item={props.item}
-          label={props.label}
-          onSend={send}
-          placeholder={props.placeholder}
-        />
+        <Show
+          when={database()}
+          keyed
+          fallback={<p class="text-sm text-muted-foreground">Loading follow-up…</p>}
+        >
+          {(path) => (
+            <Composer
+              draftKey={`inbox.${path}.${props.item}.${props.at}`}
+              focus={!!props.ask || !!props.focus}
+              label={props.label}
+              onSend={send}
+              placeholder={props.placeholder}
+            />
+          )}
+        </Show>
       </Show>
     </div>
   )
@@ -118,7 +125,7 @@ export function FollowUp(props: FollowUpProps) {
 
 function Composer(props: {
   focus: boolean
-  item: string
+  draftKey: string
   label: string
   placeholder: string
   onSend: (text: string, images: Images) => Promise<void>
@@ -163,7 +170,7 @@ function Composer(props: {
   return (
     <div ref={wrap}>
       <PromptComposer
-        draftKey={draftKey(props.item)}
+        draftKey={props.draftKey}
         label={props.label}
         onSend={props.onSend}
         placeholder={props.placeholder}
@@ -174,7 +181,7 @@ function Composer(props: {
 
 const showInReceipt = () => undefined
 
-function SentReceipt(props: { receipt: Receipt }) {
+function SentReceipt(props: { receipt: FollowUpReceipt }) {
   const now = useNow(30_000)
   const status = useAction(
     FollowUpStatusAction,
@@ -191,11 +198,12 @@ function SentReceipt(props: { receipt: Receipt }) {
       onError: showInReceipt,
     },
   )
+  const state = () => status.data()?.status
   const failure = () => {
     const error = status.error()
-    return error ? errorMessage(error) : undefined
+    if (error && state() !== 'replied' && state() !== 'no-reply') return errorMessage(error)
+    return undefined
   }
-  const state = () => (failure() ? undefined : status.data()?.status)
   return (
     <div
       class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-border/70 bg-card/60 py-1.5 pr-1.5 pl-3 font-mono text-[11px] text-muted-foreground"

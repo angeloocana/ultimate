@@ -16,7 +16,7 @@ import type {
   ConfigureRequest,
   UiOp,
 } from '../shared/protocol.ts'
-import { UI_REVISION, imageMimeTypes, maxImageBytes, maxImages } from '../shared/protocol.ts'
+import { UI_REVISION } from '../shared/protocol.ts'
 import { listModels } from './models.ts'
 import { hostDefault } from '../lib/agents.ts'
 import { expandSkillCommand } from './skills.ts'
@@ -36,14 +36,9 @@ import type { Access } from './request-security.ts'
 import { conversationIndex } from './project.ts'
 import { shortTitle } from '../lib/title.ts'
 import { batch, every } from '../lib/timers.ts'
+import { HttpError } from '../lib/http-error.ts'
+import { promptImages } from '../lib/prompt-images.ts'
 
-class HttpError extends Error {
-  status: number
-  constructor(status: number, message: string) {
-    super(message)
-    this.status = status
-  }
-}
 export class Events {
   readonly listeners = new Set<
     (name: keyof ServerEvents, data: ServerEvents[keyof ServerEvents]) => void
@@ -647,27 +642,7 @@ export async function createApi(
                 throw new HttpError(400, 'Invalid whenBusy')
               if (typeof data.text !== 'string') throw new HttpError(400, 'Expected text')
               const length = data.text.length
-              const images = data.images === undefined ? [] : data.images
-              if (!Array.isArray(images)) throw new HttpError(400, 'Expected images array')
-              if (images.length > maxImages) throw new HttpError(413, `At most ${maxImages} images`)
-              const blocks = images.map((image: unknown) => {
-                if (!image || typeof image !== 'object') throw new HttpError(400, 'Invalid image')
-                const { data: encoded, mimeType } = image as Record<string, unknown>
-                if (
-                  typeof mimeType !== 'string' ||
-                  !imageMimeTypes.includes(mimeType) ||
-                  typeof encoded !== 'string' ||
-                  !encoded ||
-                  encoded.length % 4 !== 0 ||
-                  !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)
-                )
-                  throw new HttpError(400, 'Expected supported image MIME type and base64 data')
-                if (Buffer.byteLength(encoded, 'base64') > maxImageBytes)
-                  throw new HttpError(413, 'Image exceeds 2 MiB')
-                if (Buffer.from(encoded, 'base64').toString('base64') !== encoded)
-                  throw new HttpError(400, 'Invalid image base64 data')
-                return { type: 'image' as const, data: encoded, mimeType }
-              })
+              const blocks = promptImages(data.images)
               if (!data.text.trim() && !blocks.length)
                 throw new HttpError(400, 'Expected text or images')
               const expanded = data.text.startsWith('/skill:')

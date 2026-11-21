@@ -26,6 +26,7 @@ const todoContext = (todo: Todo) =>
 function TodoFollowUp(props: { todo: Todo; focus?: boolean }) {
   return (
     <FollowUp
+      at={props.todo.at}
       focus={props.focus}
       context={todoContext(props.todo)}
       item={`todo:${props.todo.id}`}

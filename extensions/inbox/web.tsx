@@ -64,6 +64,7 @@ function Surface({
         typeof asker === 'number' && (
           <FollowUpIsland
             ask={`Ask #${asker} about this`}
+            at={item.message.at}
             context={questionContext(item.message)}
             item={item.key}
             key={item.key}
