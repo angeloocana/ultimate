@@ -34,6 +34,7 @@ import {
   events,
   formatKeys,
   formatTime,
+  island,
   provide,
   Provided,
   useAction,
@@ -49,13 +50,14 @@ import {
   UserText,
   UserView,
 } from '@/sdk'
-import type { EntryRenderer, UltimateActions } from '@/sdk'
+import type { UltimateActions } from '@/sdk'
 import { ConversationPhase } from '../conversations/ui.tsx'
 import { Body, Bubble } from '../messages/ui.tsx'
 import { SideChatsDoc, useSideChatFront } from '../side-chat/ui.tsx'
 import { UnderUltimate, Unlisted } from '../sidebar/ui.tsx'
 import { openAgentSource, StandingDoc, talkToUltimate } from '../subagents/ui.tsx'
 import * as live from './live.tsx'
+import { QuietAgentRow } from './quiet-row.solid.tsx'
 import type { VoiceMode } from './live.tsx'
 import { openQuestion } from '../../lib/message-state.ts'
 import { MessagesDoc } from '../messages/ui.tsx'
@@ -942,7 +944,11 @@ function VoiceDock({ core }: { core: ReactNode }) {
   )
 }
 
-function useVoiceRow(main: number | undefined): ReactNode {
+function useVoiceRow({
+  conversation: main,
+}: {
+  conversation: ConversationId | undefined
+}): ReactNode {
   const { voice } = useIds()
   const mode = useMode()
   const actions = useUltimate()
@@ -1108,13 +1114,7 @@ function RequestCard({ entry, line }: { entry: EntryRecord; line: VoiceLine }) {
   if (main === undefined) return null
   return (
     <div className="mt-3 first:mt-0" data-voice-line="forwarded" data-forwarded={state}>
-      <Bubble
-        at={line.at}
-        from={main}
-        lead={<Asked text={line.text} />}
-        message={undefined}
-        running={false}
-      >
+      <Bubble at={line.at} from={main} lead={<Asked text={line.text} />}>
         {state === 'working' ? (
           <Working main={main} since={line.at} />
         ) : state === 'failed' ? (
@@ -1424,16 +1424,6 @@ function QuestionRow({ entry }: { entry: EntryRecord }) {
   )
 }
 
-const QuietAgentRow: EntryRenderer = ({ core }) => {
-  const id = useConversation((conversation) => conversation.id)
-  const { voice } = useIds()
-  return id === voice ? (
-    <div className="text-xs text-muted-foreground opacity-60">{core}</div>
-  ) : (
-    core
-  )
-}
-
 export default defineWebExtension({
   slots: {
     'composer.actions': [StartButton],
@@ -1456,7 +1446,7 @@ export default defineWebExtension({
     'voice.line': LineRow,
     'voice.heard': HeardRow,
     'voice.answer': () => null,
-    'pi.assistant': QuietAgentRow,
+    'pi.assistant': island(QuietAgentRow),
     'voice.session': SessionRow,
     'voice.context': ContextRow,
     'voice.utterance': UtteranceRow,

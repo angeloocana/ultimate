@@ -1,3 +1,4 @@
+import type { ConversationId } from '@earendil-works/pi-durable'
 import { InboxIcon } from 'lucide-react'
 import {
   Header,
@@ -98,7 +99,11 @@ function Surface({
   )
 }
 
-function useInboxSidebar() {
+function useInboxSidebar({
+  conversation: _conversation,
+}: {
+  conversation: ConversationId | undefined
+}) {
   const active = useUltimate().surface === SURFACE
   return (
     <Waiting>

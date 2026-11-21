@@ -1,22 +1,31 @@
 import { defineWebExtension, island } from '@/sdk'
-import { GoalCall } from './call.tsx'
-import { ReportCard, StartedCard } from './cards.tsx'
+import type { CompactRow } from '@/sdk'
+import { StandingDoc } from '../subagents/ui.tsx'
+import { GoalCall } from './call.solid.tsx'
+import { ModelOnlyNote, ReportCard, StartedCard } from './cards.solid.tsx'
 import { HandsOff } from './chip.solid.tsx'
 import { GoalDialog, goalDialog } from './dialog.solid.tsx'
 
-function ModelOnlyNote() {
-  return null
-}
+const proposes = (call: CompactRow['calls'][number]) =>
+  call.name === 'goal' && (call.arguments as { action?: unknown }).action === 'propose'
 
 export default defineWebExtension({
-  tools: { goal: GoalCall },
+  tools: { goal: island(GoalCall) },
   entries: {
-    'goal.started': StartedCard,
-    'goal.report': ReportCard,
-    'goal.note': ModelOnlyNote,
+    'goal.started': island(StartedCard),
+    'goal.report': island(ReportCard),
+    'goal.note': island(ModelOnlyNote),
   },
   slots: { 'statusline.right': [island(HandsOff)], overlay: [island(GoalDialog)] },
   commands: [
     { id: 'goal.start', title: 'Go hands-off…', run: (context) => context.open(goalDialog) },
   ],
+  compact: {
+    when: (conversation, docs) =>
+      (docs[StandingDoc.kind] as Record<string, number> | null | undefined)?.ultimate ===
+      conversation.id,
+    tools: [proposes],
+    docs: [StandingDoc.kind],
+    thread: (row) => row.calls.some(proposes) || 'hidden',
+  },
 })

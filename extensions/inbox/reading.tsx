@@ -1,9 +1,8 @@
 import { ArrowLeftIcon, ExternalLinkIcon, GitBranchIcon } from 'lucide-react'
-import { MessageResponse } from '@/components/ai/message'
 import { Button } from '@/components/ui/button'
 import { AllProvided, cn, column, events, formatAgo, useUltimate } from '@/sdk'
 import { ConversationRef } from '../conversations/ui.tsx'
-import { MessageExtras, MessageImages } from '../messages/ui.tsx'
+import { Body, MessageExtras, MessageImages } from '../messages/ui.tsx'
 import { MessageQuestions } from '../questions/ui.tsx'
 import { WAIT_WARNING_AFTER_MS, amber, previewUrl, senderOf, tagOf } from './items.ts'
 import type { Entry } from './items.ts'
@@ -60,14 +59,16 @@ export function Reading({
         </span>
       </header>
       {message ? (
-        <MessageResponse className="mt-3 text-[15px] leading-6">{message.text}</MessageResponse>
+        <div className="mt-3 [&>div>div]:px-0 [&>div>div]:py-0 [&>div>div]:text-[15px] [&>div>div]:leading-6">
+          <Body text={message.text} />
+        </div>
       ) : (
         <h2 className="mt-3 text-[17px] leading-7 font-semibold tracking-[-0.01em]">
           {entry.item.title}
         </h2>
       )}
       {message?.images && typeof message.from === 'number' && (
-        <div className="mt-4 overflow-hidden rounded-lg border border-border/70 bg-card/60 [&>div]:border-t-0">
+        <div className="mt-4 overflow-hidden rounded-lg border border-border/70 bg-card/60 [&>div>div]:border-t-0">
           <MessageImages conversation={message.from} entry={message.images.entry} />
         </div>
       )}
@@ -92,7 +93,7 @@ export function Reading({
 
   const answer = message ? (
     <div className="overflow-hidden rounded-lg border border-border/70 bg-card/60">
-      <AllProvided input={message} point={MessageExtras}>
+      <AllProvided input={{ message }} point={MessageExtras}>
         {(extras) => extras}
       </AllProvided>
       <MessageQuestions key={message.id} keys={!phone} message={message} />

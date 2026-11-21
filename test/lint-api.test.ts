@@ -327,6 +327,17 @@ it('sends a Solid form to the kit Form, whose submit Button keeps who submitted 
   expect(lint('ui-kit-roles', 'web/src/components/ui/form.solid.tsx', source)).toEqual([])
 })
 
+it('sends a Solid bare button to the kit Button, which the agent bridge can see and press', () => {
+  const source = `export const Open = () => (
+  <button onClick={() => switchConversation(42)} type="button">
+    #42
+  </button>
+)`
+  expect(lint('ui-kit-roles', 'extensions/instance/link.solid.tsx', source)).toHaveLength(1)
+  expect(lint('ui-kit-roles', 'extensions/instance/web.tsx', source)).toEqual([])
+  expect(lint('ui-kit-roles', 'web/src/components/ui/button.solid.tsx', source)).toEqual([])
+})
+
 it('keeps server helpers out of web tests, which the web tsconfig type-checks', () => {
   const source = `import { until } from '../../../../test/helpers.ts'
 import { renderSolid } from '../../../../test/web/solid-dom-setup.ts'`
@@ -403,9 +414,18 @@ import type { Accessor } from '@/sdk/solid'`
   ])
 })
 
-it('lets only the core hosts in web/src/app import the temporary reactIsland', () => {
-  const source = `import { reactIsland } from '@/sdk/react-island'
-const later = import(\`@/sdk/react-island\`)`
+it('gives Solid files the transcript parts, and lets a ui.tsx wrap its own Solid parts in island', () => {
+  const parts = `import { Card } from '@/sdk/parts.solid.tsx'`
+  expect(lint('ui-framework-boundaries', 'extensions/echo/card.solid.tsx', parts)).toEqual([])
+  expect(lint('ui-framework-boundaries', 'extensions/echo/cards.tsx', parts)).toHaveLength(1)
+  const own = `import { Card } from './card.solid.tsx'`
+  expect(lint('ui-framework-boundaries', 'extensions/echo/ui.tsx', own)).toEqual([])
+  expect(lint('ui-framework-boundaries', 'extensions/echo/cards.tsx', own)).toHaveLength(1)
+})
+
+it('lets only the core hosts in web/src/app import the temporary React bridge', () => {
+  const source = `import { Contribution } from '@/sdk/react-island.solid.tsx'
+const later = import(\`@/sdk/react-island.solid.tsx\`)`
   const moveIt =
     'Move this part to Solid, or keep it React and contribute it where a core host renders React.'
   expect(lint('ui-framework-boundaries', 'web/src/app/transcript.solid.tsx', source)).toEqual([])

@@ -6,10 +6,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { expectDistinctAgentNames } from '../../../../test/web/agent-names.ts'
 import { FakeSource, fakeSubscriptions } from '../../../../test/web/fake-source.ts'
 import { renderSolid } from '../../../../test/web/solid-dom-setup.ts'
+import { GoalCall } from '../../call.solid.tsx'
+import { StartedCard } from '../../cards.solid.tsx'
 import { HandsOff } from '../../chip.solid.tsx'
 import { GoalDialog, goalDialog } from '../../dialog.solid.tsx'
 import { GoalDoc } from '../../refs.ts'
 import type { Goal } from '../../refs.ts'
+import type { EntryRecord, ToolCallView } from '@/sdk'
 
 const harness = vi.hoisted(() => ({
   sources: [] as FakeSource[],
@@ -69,6 +72,7 @@ beforeEach(() => {
   harness.sources.at(-1)!.open()
 })
 afterEach(() => {
+  approved = true
   store.stop()
   vi.unstubAllGlobals()
 })
@@ -144,6 +148,80 @@ it('blocks starting when an open goal arrives even after a draft has been filled
   await expectDistinctAgentNames(agent)
   expect(control(label)?.disabled).toBe(true)
   expect(view.querySelector('[data-goal-blocked]')?.textContent).toContain('Goal 1 is still open.')
+  expect(harness.action).not.toHaveBeenCalled()
+})
+
+it('ends hands-off from the transcript only after the person approves the agent press', async () => {
+  const entry = {
+    kind: 'goal.started',
+    id: 10,
+    conversationId: 42,
+    data: { goal: goal.id },
+  } as unknown as EntryRecord
+  const view = renderSolid(() => <StartedCard entry={entry} />)
+  await settle()
+  await publish(goal)
+  await expectDistinctAgentNames(agent)
+  const button = control('End hands-off')!
+  expect(button.confirm).toBe('Ends the hands-off goal and returns decisions to you.')
+  const press = () => agent.act({ steps: [{ ref: button.ref, action: 'press' }] })
+
+  approved = false
+  expect((await press()).ok).toBe(false)
+  expect(harness.action).not.toHaveBeenCalled()
+  approved = true
+  expect((await press()).ok).toBe(true)
+  expect(harness.action.mock.calls).toEqual([['/api/extensions/goal/actions/end', null, 'agent']])
+  await publish({ ...goal, ended: { at: 1, by: 'user', outcome: 'ended' } })
+  expect(view.querySelector('[data-goal-end]')).toBeNull()
+  expect(view.textContent).toContain('report below')
+})
+
+async function proposal() {
+  const call = {
+    id: 'c1',
+    name: 'goal',
+    args: { action: 'propose', text: goal.text },
+    status: 'done',
+    output: '',
+    images: [],
+    diagnostics: [],
+  } as unknown as ToolCallView
+  const view = renderSolid(() => <GoalCall call={call} core={null} />)
+  await settle()
+  await publish()
+  return view
+}
+const proposedStart = 'Start this goal (call c1)'
+
+it('starts a proposed goal with the text the person edited', async () => {
+  const view = await proposal()
+  await expectDistinctAgentNames(agent)
+  const text = view.querySelector<HTMLTextAreaElement>('[data-goal-proposal-text]')!
+  expect(text.value).toBe(goal.text)
+  text.setRangeText(' by 8:00', text.value.length, text.value.length)
+  text.dispatchEvent(new Event('input', { bubbles: true }))
+  flush()
+  view.querySelector<HTMLButtonElement>('[data-goal-proposal-start]')!.click()
+  await settle()
+  expect(harness.action.mock.calls[0]).toEqual([
+    '/api/extensions/goal/actions/start',
+    { text: `${goal.text} by 8:00`, proposal: 'c1' },
+    'person',
+  ])
+  await publish({ ...goal, proposal: 'c1' })
+  expect(view.querySelector('[data-goal-proposal-started]')?.textContent).toContain('goal 1')
+  expect(view.querySelector('[data-goal-proposal-start]')).toBeNull()
+})
+
+it('refuses an agent pressing Start on a proposed goal without the person', async () => {
+  await proposal()
+  expect(control(proposedStart)!.confirm).toBe('Hands decisions to @ultimate until the goal ends.')
+  approved = false
+  const refused = await agent.act({
+    steps: [{ ref: control(proposedStart)!.ref, action: 'press' }],
+  })
+  expect(refused.ok).toBe(false)
   expect(harness.action).not.toHaveBeenCalled()
 })
 

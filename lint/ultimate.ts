@@ -110,25 +110,31 @@ const membersOf = (declaration: Node): Node[] =>
 const repositoryPath = (filename: string) =>
   path.relative(process.cwd(), filename).split(path.sep).join('/')
 const solidFile = (filename: string) => filename.endsWith('.solid.tsx')
-const reactIslandFile = 'web/src/sdk/react-island.tsx'
+const reactIslandFile = 'web/src/sdk/react-island.solid.tsx'
 const rendererBridges = new Set([
   'web/src/sdk/island.tsx',
   'web/src/sdk/solid.ts',
   'web/src/sdk/markdown.tsx',
+  'web/src/sdk/react-island.tsx',
+  'web/src/app/transcript-parts.tsx',
+  'web/src/app/primitives.tsx',
   reactIslandFile,
 ])
 const rendererBridge = (filename: string) => rendererBridges.has(repositoryPath(filename))
 const solidSdk = 'web/src/sdk/solid.ts'
+const solidParts = 'web/src/sdk/parts.solid.tsx'
+const solidSdkEntry = (file: string) => file === solidSdk || file === solidParts
+const frameworkNeutralSdk = new Set(['web/src/sdk/island-mark.ts'])
 const reactSdk = (module: string) => {
   const file = repositoryPath(module)
-  return file.startsWith('web/src/sdk/') && file !== solidSdk
+  return file.startsWith('web/src/sdk/') && !solidSdkEntry(file) && !frameworkNeutralSdk.has(file)
 }
-const extensionWebFacet = (filename: string) =>
-  /^(\.ultimate\/)?extensions\/[^/]+\/web\.tsx$/.test(repositoryPath(filename))
+const islandHost = (filename: string) =>
+  /^(\.ultimate\/)?extensions\/[^/]+\/(web|ui)\.tsx$/.test(repositoryPath(filename))
 const uiKitFile = (filename: string) =>
   repositoryPath(filename).startsWith('web/src/components/ui/')
 const reactOnly =
-  /^(react|react-dom|lucide-react|radix-ui|cmdk|streamdown|use-stick-to-bottom|@radix-ui\/.*|@pierre\/diffs\/react)(\/|$)/
+  /^(react|react-dom|lucide-react|radix-ui|cmdk|streamdown|@radix-ui\/.*|@pierre\/diffs\/react)(\/|$)/
 const solidOnly = /^(solid-js|@solidjs\/.*|@ui-sdk\/solid)(\/|$)/
 const uiSdkComponents = /^@ui-sdk\/solid(\/|$)/
 const solidJsxPragma = '@jsxImportSource @solidjs/web'
@@ -265,18 +271,14 @@ const hasBody = (statement: Node) =>
   )
 /** The SDK's public entries: `@/sdk` for React, `@/sdk/solid` for Solid. */
 const sdkEntry = (filename: string) =>
-  ['web/src/sdk/index.ts', solidSdk].includes(repositoryPath(filename))
-/**
- * Where JSDoc is a contract: the statements of a contract file, or the exports of an SDK entry's public names, and the
- * core's temporary `reactIsland`, which no SDK entry exports.
- */
+  ['web/src/sdk/index.ts', solidSdk, solidParts].includes(repositoryPath(filename))
+/** Where JSDoc is a contract: the statements of a contract file, or the exports of an SDK entry's public names. */
 function contractStatements(filename: string, statements: Node[]) {
   if (contractFile(filename)) return statements
-  if (repositoryPath(filename) === solidSdk)
+  if (solidSdkEntry(repositoryPath(filename)))
     return statements.filter((statement) => statement.type === 'ExportNamedDeclaration')
   if (!inSdk(filename)) return []
-  const names =
-    repositoryPath(filename) === reactIslandFile ? new Set(['reactIsland']) : publicSdk()
+  const names = publicSdk()
   return statements.filter(
     (statement) =>
       statement.type === 'ExportNamedDeclaration' &&
@@ -337,21 +339,22 @@ export default {
           if (node.importKind === 'type' || node.exportKind === 'type') return
           const local = localModule(context.filename, source)
           if (local !== undefined && repositoryPath(local) === reactIslandFile) {
-            if (!repositoryPath(context.filename).startsWith('web/src/app/'))
+            if (!/^web\/src\/(app|sdk)\//.test(repositoryPath(context.filename)))
               context.report({
                 node,
-                message: `reactIsland is a temporary bridge for the core switch: only the core hosts in web/src/app mount leftover React in Solid, and C5 deletes it with React. Move this part to Solid, or keep it React and contribute it where a core host renders React.`,
+                message: `The React bridge (web/src/sdk/react-island.solid.tsx) is temporary, for the core switch: only the core hosts in web/src/app mount leftover React in Solid, and C5 deletes it with React. Move this part to Solid, or keep it React and contribute it where a core host renders React.`,
               })
             return
           }
           const localReact = local?.endsWith('.tsx') === true && !solidFile(local)
           const localSolid =
-            local !== undefined && (solidFile(local) || repositoryPath(local) === solidSdk)
+            local !== undefined && (solidFile(local) || solidSdkEntry(repositoryPath(local)))
           const islandComponent =
             local !== undefined &&
             solidFile(local) &&
             node.type === 'ImportDeclaration' &&
-            extensionWebFacet(context.filename)
+            islandHost(context.filename)
+          if (rendererBridge(context.filename) && (localReact || reactSdk(local ?? ''))) return
           if (solid && (reactOnly.test(source) || localReact))
             context.report({
               node,
@@ -421,6 +424,17 @@ export default {
                 node,
                 message:
                   "A native form submit carries no source, so a change an agent submits is recorded as the person's. Use the kit's Form from @/components/ui and start the change in its type=\"submit\" Button's onClick, which Enter in a field presses too.",
+              })
+            if (
+              node.name?.type === 'JSXIdentifier' &&
+              node.name.name === 'button' &&
+              solidFile(context.filename) &&
+              !context.filename.endsWith('.test.solid.tsx')
+            )
+              context.report({
+                node,
+                message:
+                  "The agent bridge sees only kit parts, so an agent can neither find nor press a bare <button>, and its click is recorded without a source. Use the kit's Button from @/components/ui (size={null} variant={null} for an unstyled one) with a name unique on the page.",
               })
           },
           JSXAttribute(node: Node & { name?: Node }) {

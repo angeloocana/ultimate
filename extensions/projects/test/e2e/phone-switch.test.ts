@@ -59,7 +59,7 @@ async function listsAfter(page: Page, ms: number, lists: () => number) {
 }
 
 const toggleSidebar = (page: Page) => page.locator('button[aria-label="Toggle sidebar"]').click()
-const sidebarProjectBlock = (page: Page) => page.locator('aside [aria-label="Project"]')
+const sidebarProjectBlock = (page: Page) => page.locator('aside [data-root-context="1"]')
 async function closeSidebar(page: Page) {
   await page.mouse.click(380, 400)
   await page

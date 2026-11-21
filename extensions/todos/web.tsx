@@ -1,11 +1,11 @@
 import { ROOT, defineWebExtension, island, provide, useDocOf, useUltimate } from '@/sdk'
 import { InboxItems } from '../inbox/ui.tsx'
 import type { InboxItem } from '../inbox/ui.tsx'
-import { TodoCall } from './call.tsx'
+import { TodoCall } from './call.solid.tsx'
 import { InboxTodoControls, TodoPane } from './inbox.solid.tsx'
+import { ModelOnlyTodoReminder } from './note.solid.tsx'
 import { TodosDoc } from './refs.ts'
 
-const ModelOnlyTodoReminder = () => null
 const Controls = island(InboxTodoControls)
 const Pane = island(TodoPane)
 
@@ -30,7 +30,7 @@ function useTodoItems(): InboxItem[] | undefined {
 
 export default defineWebExtension({
   slots: { 'header.right': [TodoControls] },
-  tools: { todo: TodoCall },
-  entries: { 'todos.note': ModelOnlyTodoReminder },
+  tools: { todo: island(TodoCall) },
+  entries: { 'todos.note': island(ModelOnlyTodoReminder) },
   provides: [provide(InboxItems, useTodoItems)],
 })
