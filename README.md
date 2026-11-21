@@ -154,7 +154,7 @@ the tools and the conversation work in your project.
   All project homes are in one central place, `~/.ultimate/projects/`; Ultimate can list other projects and their
   conversations with `ultimate.projects()` in codemode, including their URL when running.
 - **Actions** let an extension's UI call its server code: `export const actions = { … }` in `server.ts`, then
-  `useAction(ref, args)` in `web.tsx`, with a typed `actionRef` from `@/sdk`. See [actions](docs/extensions/actions.md).
+  `useAction(ref, args)` in `web.solid.tsx`, with a typed `actionRef` from `@/sdk/solid`. See [actions](docs/extensions/actions.md).
 
 ### One Ultimate or many
 
@@ -200,7 +200,7 @@ stays docked on every surface, and the choice is durable: reloads, other tabs, a
 - "Build a surface for …" — a whole app with its UI, server actions, and the agent docked beside it; switch to it while
   it is being built.
 - "Build a small extension that …" — it reads [extensions/README.md](extensions/README.md), writes
-  `<project>/.ultimate/extensions/<name>/web.tsx`, and the UI switches to it in front of you.
+  `<project>/.ultimate/extensions/<name>/web.solid.tsx`, and the UI switches to it in front of you.
 - "Take a screenshot of yourself and tell me what looks off" — it can see and drive its own UI.
 - "Delegate to a worker: …" — subagents run as their own conversations (Agents tab, `open #id`).
 - "Use codemode to check which of your extensions failed to load" — one sandboxed script over its own runtime.
@@ -209,12 +209,12 @@ stays docked on every surface, and the choice is durable: reloads, other tabs, a
 - Press `Ctrl+Alt+B` for the right panel: To-dos, Tasks, Activity, Automations (schedules and watching scripts),
   Agents, Documents (the plan, the codemode store, and every other extension document), Info (workspace, model,
   build, machine, skills) and Extensions, each a tab; Secrets and Claude Code open from ⌘K.
-- Use @ultimate's row at the top of the sidebar (on phones, the top-bar **@ultimate** button) to ask for work, explore an idea, or start an independent line of work. Its messages and questions appear in its transcript, with answer cards beneath questions; open questions also wait at the top of the right panel's To-dos tab until you answer or dismiss them, and @ultimate's mark turns amber meanwhile.
+- Use @ultimate's row at the top of the sidebar (on phones, the top-bar **@ultimate** button) to ask for work, explore an idea, or start an independent line of work. Its messages and questions appear in its transcript, with answer cards beneath questions; open questions also wait in the Inbox until you answer or dismiss them, and @ultimate's mark turns amber meanwhile.
 
 ## How it is put together
 
 [AGENTS.md](AGENTS.md) is Ultimate's guide to itself: which path holds what, how each layer reloads, and the
-conventions. Everything that is not core plumbing is an extension folder with a `server.ts` (agent) and/or `web.tsx`
+conventions. Everything that is not core plumbing is an extension folder with a `server.ts` (agent) and/or `web.solid.tsx`
 (UI) facet; [extensions/README.md](extensions/README.md) is the guide to writing them.
 
 ## Develop

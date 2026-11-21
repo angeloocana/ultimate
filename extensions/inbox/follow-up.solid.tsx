@@ -9,8 +9,8 @@ import {
 } from '@lucide/solid'
 import { Match, Show, Switch, createSignal, onSettled } from 'solid-js'
 import { Button } from '@/components/ui/button.solid.tsx'
-import { PromptComposer } from '@/sdk/parts.solid.tsx'
 import {
+  PromptComposer,
   ROOT,
   api,
   cn,

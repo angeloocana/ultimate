@@ -62,9 +62,9 @@ message settles (answered, dismissed, or settled for them by @ultimate).
 
 ## Where open questions wait
 
-The Inbox (`extensions/inbox`) lists every message that waits on the user, oldest first, and shows this card under the
-selected one, so it is answered or dismissed there; the To-dos tab keeps one `Inbox · N` row that opens it. ⌘K “Show
-open questions" opens the To-dos tab; meanwhile @ultimate's mark is amber, and an asking branch's row says `waits on you`.
+The Inbox (`extensions/inbox`) lists every message that waits on the user alongside their open to-dos. It shows this
+card under the selected question so the user can answer or dismiss it there. ⌘K **Show open questions** opens the Inbox;
+meanwhile @ultimate's mark is amber, and an asking branch's row says `waits on you`.
 
 ## Actions
 

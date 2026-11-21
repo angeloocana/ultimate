@@ -1,12 +1,13 @@
 /** @jsxImportSource @solidjs/web */
+import type { JSX } from '@solidjs/web'
 import { MessageCircleQuestion } from '@lucide/solid'
 import { createMemo, createSignal, For, onSettled, Show } from 'solid-js'
 import { Button } from '@/components/ui/button.solid.tsx'
 import { Form } from '@/components/ui/form.solid.tsx'
 import { Input, Textarea } from '@/components/ui/input.solid.tsx'
 import { Kbd } from '@/components/ui/kbd.solid.tsx'
-import { Provided } from '@/sdk/parts.solid.tsx'
 import {
+  Provided,
   api,
   cn,
   errorMessage,
@@ -16,6 +17,7 @@ import {
   useUiState,
   useViewport,
   writingAs,
+  type Point,
 } from '@/sdk/solid'
 import { deadline } from '../../lib/timers.ts'
 import type { Cancel } from '../../lib/timers.ts'
@@ -23,8 +25,6 @@ import { MessagesDoc } from '../messages/refs.ts'
 import { keyCard, openQuestions, waitsOnUser } from './open.ts'
 import type { Message } from './open.ts'
 import type { EntryRecord } from '@earendil-works/pi-durable'
-import type { ReactNode } from 'react'
-import type { Point } from '@/sdk'
 import { QuestionItem } from './question.solid.tsx'
 import { AnswerAction, DismissAction } from './refs.ts'
 import type { Reply } from './refs.ts'
@@ -44,7 +44,9 @@ import type { CardState, Draft } from './state.ts'
 
 const CHECK_LANDING_BEFORE_ADVANCE_MS = 320
 
-export const CardActions: Point<Message, ReactNode> = { point: 'questions.card-actions' }
+export const CardActions: Point<{ message: Message }, JSX.Element> = {
+  point: 'questions.card-actions',
+}
 
 type CardProps = {
   message: Message
@@ -110,7 +112,7 @@ function AnswerCard(props: CardProps & { id: number }) {
   const Actions = (controls: { disabled: boolean; class?: string }) => (
     <>
       <Show when={props.withActions !== false}>
-        <Provided point={CardActions} input={props.message} last />
+        <Provided point={CardActions} input={{ message: props.message }} last />
       </Show>
       <Button
         aria-label={`Dismiss message ${props.id}`}
@@ -481,7 +483,7 @@ function AnswerCard(props: CardProps & { id: number }) {
               </Show>
             </span>
           </Show>
-          <span class="ml-auto flex items-center gap-1.5">
+          <span class="ml-auto flex flex-wrap items-center justify-end gap-1.5">
             <Actions disabled={disabled()} class="max-md:h-11" />
             <SendButton
               messageId={props.id}

@@ -6,21 +6,20 @@ import { Show } from 'solid-js'
 import { Shimmer } from '@/components/ai/shimmer.solid.tsx'
 import { Markdown } from '@/components/markdown/markdown.solid.tsx'
 import { Button } from '@/components/ui/button.solid.tsx'
-import { Provided } from '@/sdk/parts.solid.tsx'
-import { cn, events, showSurface, switchConversation } from '@/sdk/solid'
+import { Provided, cn, events, showSurface, switchConversation } from '@/sdk/solid'
 import { accentOf } from './accent.ts'
 import { MessageAnswers, MessageExtras } from './points.ts'
 import type { Message } from './refs.ts'
-import { useStandingName } from './ui.solid.tsx'
+import { useStandingName } from './standing-name.solid.tsx'
 
 export function useAccentOf(id: () => ConversationId | 'user' | 'remote') {
   const name = useStandingName(id)
   return () => accentOf(name() === 'ultimate' ? 'ultimate' : id())
 }
 
-export function Body(props: { text: string; pending?: string }) {
+export function Body(props: { text: string; pending?: string; class?: string }) {
   return (
-    <div class="min-w-0 px-3 py-3 text-[13px] leading-relaxed">
+    <div class={cn('min-w-0 px-3 py-3 text-[13px] leading-relaxed', props.class)} data-message-body>
       <Show fallback={<Markdown text={props.text} />} when={!props.text && props.pending}>
         {(pending) => <Shimmer as="p">{pending()}</Shimmer>}
       </Show>
