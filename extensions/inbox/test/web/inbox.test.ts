@@ -1,6 +1,8 @@
 import type { ConversationId } from '@earendil-works/pi-durable'
 import { expect, it } from 'vitest'
 import {
+  KEPT_RECEIPTS,
+  keepNewestReceipts,
   inboxItems,
   keyOf,
   selectionAfterChange,
@@ -150,4 +152,17 @@ it('reads a link as a key, a plain number as a message id', () => {
   expect(keyOf(12)).toBe('message:12')
   expect(keyOf('shell:3')).toBe('shell:3')
   expect(keyOf('')).toBeUndefined()
+})
+
+it('keeps only the newest follow-up receipts so UI state stays small', () => {
+  const receipts = Object.fromEntries(
+    Array.from({ length: KEPT_RECEIPTS + 5 }, (_, index) => [
+      `todo:${index}`,
+      { to: 2 as ConversationId, submissionId: index + 1, at: index },
+    ]),
+  )
+  const kept = keepNewestReceipts(receipts)
+  expect(Object.keys(kept)).toHaveLength(KEPT_RECEIPTS)
+  expect(kept['todo:4']).toBeUndefined()
+  expect(kept[`todo:${KEPT_RECEIPTS + 4}`]?.submissionId).toBe(KEPT_RECEIPTS + 5)
 })

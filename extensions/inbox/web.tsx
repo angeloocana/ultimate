@@ -15,7 +15,8 @@ import { localDay } from '../../lib/calendar-day.ts'
 import type { Message } from '../messages/refs.ts'
 import { UnderUltimate } from '../sidebar/ui.tsx'
 import { Badge, LinkOverlay, SidebarRow, Zero } from './chrome.solid.tsx'
-import { SURFACE, answeredToday, sortForSurface, toRow } from './items.ts'
+import { FollowUp } from './follow-up.solid.tsx'
+import { SURFACE, answeredToday, questionContext, sortForSurface, toRow } from './items.ts'
 import type { Entry } from './items.ts'
 import { List } from './list.solid.tsx'
 import { Reading } from './reading.tsx'
@@ -27,6 +28,7 @@ const ZeroIsland = island(Zero)
 const BadgeIsland = island(Badge)
 const SidebarIsland = island(SidebarRow)
 const LinkIsland = island(LinkOverlay)
+const FollowUpIsland = island(FollowUp)
 
 function Inbox() {
   return (
@@ -53,9 +55,24 @@ function Surface({
   const ordered = sortForSurface(entries, today)
   const { shown: item, selected, setSelected } = useSelection(ordered, ready)
   const list = <ListIsland phone={phone} rows={ordered.map((entry) => toRow(entry, today))} />
+  const asker = item?.message?.from
   const reading = item && (
     <Reading
       entry={item}
+      followUp={
+        item.message &&
+        typeof asker === 'number' && (
+          <FollowUpIsland
+            ask={`Ask #${asker} about this`}
+            context={questionContext(item.message)}
+            item={item.key}
+            key={item.key}
+            label={`your follow-up to #${asker}`}
+            placeholder="Ask a follow-up without answering yet…"
+            to={() => asker}
+          />
+        )
+      }
       key={item.key}
       now={now}
       onBack={() => setSelected((current) => current && { ...current, open: false })}

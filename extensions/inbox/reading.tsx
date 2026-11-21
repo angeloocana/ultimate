@@ -4,6 +4,7 @@ import { AllProvided, cn, column, events, formatAgo, useUltimate } from '@/sdk'
 import { ConversationRef } from '../conversations/ui.tsx'
 import { Body, MessageExtras, MessageImages } from '../messages/ui.tsx'
 import { MessageQuestions } from '../questions/ui.tsx'
+import type { ReactNode } from 'react'
 import { WAIT_WARNING_AFTER_MS, amber, previewUrl, senderOf, tagOf } from './items.ts'
 import type { Entry } from './items.ts'
 
@@ -14,11 +15,13 @@ export function Reading({
   now,
   phone,
   onBack,
+  followUp,
 }: {
   entry: Entry
   now: number
   phone: boolean
   onBack: () => void
+  followUp?: ReactNode
 }) {
   const { showSurface, switchConversation } = useUltimate()
   const message = entry.message
@@ -119,6 +122,7 @@ export function Reading({
         >
           {top}
           <div className="mt-5">{answer}</div>
+          {followUp && <div className="mt-3">{followUp}</div>}
         </div>
       </div>
     )
@@ -127,6 +131,7 @@ export function Reading({
       <div className={cn(column(), 'pt-8 pb-12')}>
         {top}
         <div className="mt-6">{answer}</div>
+        {followUp && <div className="mt-3">{followUp}</div>}
       </div>
     </div>
   )

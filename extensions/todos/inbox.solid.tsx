@@ -1,5 +1,5 @@
 /** @jsxImportSource @solidjs/web */
-import { Check, Ellipsis, Pencil, Play, Plus, RotateCcw } from '@lucide/solid'
+import { ArrowLeft, Check, Ellipsis, Pencil, Play, Plus, RotateCcw } from '@lucide/solid'
 import { For, Show, createMemo, createSignal } from 'solid-js'
 import { Button } from '@/components/ui/button.solid.tsx'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog.solid.tsx'
@@ -9,39 +9,35 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu.solid.tsx'
-import {
-  ROOT,
-  api,
-  errorMessage,
-  events,
-  showSurface,
-  switchConversation,
-  useDocOf,
-  writingAs,
-} from '@/sdk/solid'
+import { ROOT, api, errorMessage, events, useDocOf } from '@/sdk/solid'
+import { FollowUp } from '../inbox/ui.solid.tsx'
 import { StandingAction } from '../subagents/refs.ts'
 import { TodoEditor } from './editor.solid.tsx'
 import { DoneAction, ReopenAction, TodosDoc } from './refs.ts'
 import type { Todo } from './refs.ts'
 
 const dialog = 'max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto p-5 sm:max-w-[28rem]'
-const helpLabel = (todo: Todo) =>
-  todo.owner === 'user' ? 'Ask @ultimate for help' : 'Have @ultimate work on this'
+const ultimate = () => api.action(StandingAction, { name: 'ultimate' })
+const todoContext = (todo: Todo) =>
+  todo.owner === 'user'
+    ? `About my to-do #${todo.id}: ${todo.text}`
+    : `Work on your to-do #${todo.id}: ${todo.text}`
 
-async function askUltimate(todo: Todo, source: string) {
-  const id = await api.action(StandingAction, { name: 'ultimate' })
-  writingAs(source, () => events.emit('ultimate:sent', { conversationId: id }))
-  await writingAs(source, () =>
-    api.submit(
-      `${todo.owner === 'user' ? 'Help me with' : 'Work on'} to-do #${todo.id}: ${todo.text}`,
-      'followUp',
-      id,
-    ),
+function TodoFollowUp(props: { todo: Todo; focus?: boolean }) {
+  return (
+    <FollowUp
+      focus={props.focus}
+      context={todoContext(props.todo)}
+      item={`todo:${props.todo.id}`}
+      label={props.todo.owner === 'user' ? 'your follow-up to @ultimate' : '@ultimate to start'}
+      placeholder={
+        props.todo.owner === 'user'
+          ? 'Ask @ultimate about this to-do…'
+          : 'How should @ultimate start? Add notes or files…'
+      }
+      to={ultimate}
+    />
   )
-  writingAs(source, () => {
-    showSurface('agent')
-    switchConversation(id)
-  })
 }
 
 function useTodoAction() {
@@ -82,19 +78,13 @@ export function TodoPane(props: { todo: Todo }) {
         >
           <Pencil aria-hidden="true" /> Edit
         </Button>
-        <Button
-          class="min-h-10"
-          onClick={(_, details) => run(askUltimate(props.todo, details.source))}
-          variant="ghost"
-        >
-          <Play aria-hidden="true" /> {helpLabel(props.todo)}
-        </Button>
       </div>
       <Show when={failure()}>
         <p class="break-words text-sm text-error" role="alert">
           {failure()}
         </p>
       </Show>
+      <TodoFollowUp todo={props.todo} />
       <Dialog open={editing()} onOpenChange={setEditing}>
         <DialogContent class={dialog}>
           <Show when={edit()}>
@@ -170,6 +160,7 @@ export function InboxTodoControls() {
 function ManagedTodos(props: { group: Group }) {
   const doc = useDocOf(() => ROOT, TodosDoc)
   const [edit, setEdit] = createSignal<Todo>()
+  const [start, setStart] = createSignal<Todo>()
   const { failure, run } = useTodoAction()
   const items = createMemo(() => {
     const all = doc()?.items ?? []
@@ -177,7 +168,7 @@ function ManagedTodos(props: { group: Group }) {
       ? all.filter((todo) => todo.done !== undefined).toSorted((a, b) => b.done! - a.done!)
       : all.filter((todo) => todo.owner === 'ultimate' && todo.done === undefined)
   })
-  return (
+  const managed = () => (
     <Show
       when={edit()}
       fallback={
@@ -237,9 +228,9 @@ function ManagedTodos(props: { group: Group }) {
                           <Pencil aria-hidden="true" /> Edit
                         </Button>
                         <Button
-                          aria-label={`${helpLabel(todo())} #${todo().id}: ${todo().text}`}
+                          aria-label={`Start #${todo().id}: ${todo().text}`}
                           class="min-h-9"
-                          onClick={(_, details) => run(askUltimate(todo(), details.source))}
+                          onClick={() => setStart(todo())}
                           size="sm"
                           variant="ghost"
                         >
@@ -262,5 +253,31 @@ function ManagedTodos(props: { group: Group }) {
     >
       {(todo) => <TodoEditor todo={todo()} close={() => setEdit(undefined)} />}
     </Show>
+  )
+  return (
+    <Show when={start()} fallback={managed()}>
+      {(todo) => <StartTodo todo={todo()} back={() => setStart(undefined)} />}
+    </Show>
+  )
+}
+
+function StartTodo(props: { todo: Todo; back: () => void }) {
+  return (
+    <div class="grid min-w-0 gap-3" data-start-todo={props.todo.id}>
+      <div class="flex min-w-0 items-center gap-1">
+        <Button
+          aria-label="Back to @ultimate’s tasks"
+          class="-ml-2 size-9"
+          onClick={() => props.back()}
+          size="icon"
+          variant="ghost"
+        >
+          <ArrowLeft aria-hidden="true" />
+        </Button>
+        <DialogTitle>Start #{props.todo.id}</DialogTitle>
+      </div>
+      <p class="break-words text-sm">{props.todo.text}</p>
+      <TodoFollowUp focus todo={props.todo} />
+    </div>
   )
 }

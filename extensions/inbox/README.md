@@ -30,6 +30,9 @@ that throws is left out behind its inline error card. A question's key is `messa
   **Open in branch #id** (messages' `messages:open {conversation, message}`), and the answer card itself (questions' `MessageQuestions`). An extension
   providing `QuestionPane` (`ui.tsx`) may take a question's pane over: side-chat shows the question's side chat there
   while it is in front.
+- **Follow-up** below the answer card: **Ask #id about this** opens a prompt box (text and attachments) that sends
+  `About your question #id (…)` plus the user's text to the asking branch as a follow-up, never a steer and never an
+  answer: the card stays open. To-dos put the same box in their pane, addressed to @ultimate.
 - **Keys** (desktop): `j`/`k` move the selection in visible order, `⇧O` opens the branch (plain `o` is the card's
   "Something else…"), and the card's own keys (1–9, letters, ↵, ⇧↵) answer the shown item: the Inbox passes `keys`
   to the card. A branch's transcript keeps its own rule (`keyCard`) when the Inbox is not on screen.
@@ -51,17 +54,19 @@ clears `open` without forgetting the selection.
 either or as `inbox:open {message}`, is a question's message id. A link to an entry that has not loaded yet keeps
 its key with `at: 0`, so the entry shows when it arrives and the selection takes its real age.
 
-## Follow-ups
+## Follow-ups (`ui.solid.tsx`)
 
-Ask the conversation that owns an Inbox item without answering the card or marking the item done. Questions go to
-the asker; to-dos go to `@ultimate` in this project. The shared composer supports file and image attachments.
-After sending, the item links to the recipient's conversation and shows the status of its most recent prompt.
-`followUpStatus { submissionId }` reads the input in that conversation: `pending`, `replied`, or `no-reply`.
-It is a read-only polling action and does not infer a reply from other activity in the conversation.
+`FollowUp` is an item's own prompt box for other extensions' Solid code: `{ item, context, to, label, placeholder,
+ask?, focus? }`. It submits the item context, the user's prompt and any attachments in follow-up mode to `await to()`.
+The item links to the receiving conversation and shows the status of its most recent prompt. The read-only
+`followUpStatus { submissionId }` action checks that input in the receiving conversation: `pending`, `replied`, or
+`no-reply`. The receipt is kept in `ext.inbox.followUps` for up to 30 items, and drafts are kept per item. On a phone,
+the box accounts for the space the keyboard takes so the Send button can stay in view while typing.
 
 ## Elsewhere
 
 - **Sidebar**: a row under @ultimate's (`sidebar.under-ultimate`), amber `Inbox · N · oldest 2h` while items wait,
   a quiet `Inbox` at zero; a click opens the surface. @ultimate's own row then says only `waits on you`.
-- **To-dos**: open user-owned to-dos appear in Inbox. The to-do extension adds controls to the Inbox header.
+- **To-dos**: open user-owned to-dos appear in Inbox with a follow-up box to @ultimate. The to-do extension adds
+  controls to the Inbox header; **Start** on one of @ultimate's tasks opens the same box in its dialog.
 - ⌘K **Open Inbox**.

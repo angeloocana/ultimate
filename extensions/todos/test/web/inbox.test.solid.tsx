@@ -13,7 +13,7 @@ import type { Todo } from '../../refs.ts'
 const harness = vi.hoisted(() => ({
   sources: [] as FakeSource[],
   actions: [] as { name: string; args: unknown; source: string | null }[],
-  submits: [] as { text: string; source: string | null }[],
+  submits: [] as { text: string; whenBusy?: string; images?: unknown; source: string | null }[],
 }))
 vi.mock('../../../../web/src/sdk/client.ts', async () => {
   const { createStore } = await import('../../../../web/src/sdk/store.ts')
@@ -25,9 +25,18 @@ vi.mock('../../../../web/src/sdk/client.ts', async () => {
     const path = input as string
     const source = new Headers(init?.headers).get(SOURCE_HEADER)
     if (path === '/api/conversations/69/submit') {
-      const { text } = JSON.parse(init!.body as string) as { text: string }
-      harness.submits.push({ text, source })
-      return Response.json({ ok: true })
+      const { text, whenBusy, images } = JSON.parse(init!.body as string) as {
+        text: string
+        whenBusy?: string
+        images?: unknown
+      }
+      harness.submits.push({ text, whenBusy, images, source })
+      return Response.json({ submissionId: 412 })
+    }
+    if (path === '/api/extensions/inbox/actions/followUpStatus') {
+      const { args, conversationId } = JSON.parse(init!.body as string)
+      harness.actions.push({ name: 'followUpStatus', args: { ...args, conversationId }, source })
+      return Response.json({ result: { status: 'pending' } })
     }
     if (path === '/api/extensions/subagents/actions/standing') {
       harness.actions.push({
@@ -79,9 +88,14 @@ const control = (label: string, component: string) => {
   return found
 }
 
-it('adds, edits and acts on Inbox to-dos as the agent that pressed the control', async ({
+it('adds, edits, acts on and follows up Inbox to-dos as the agent that pressed the control', async ({
   onTestFinished,
 }) => {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
+  }))
   store.start()
   onTestFinished(() => store.stop())
   harness.sources[0].open()
@@ -128,7 +142,12 @@ it('adds, edits and acts on Inbox to-dos as the agent that pressed the control',
   await set('To-do text', 'textarea', 'Renew the production cert')
   await press('Save changes')
   await press('Mark done')
-  await press('Ask @ultimate for help')
+  expect(harness.submits).toEqual([])
+  await set('Prompt for your follow-up to @ultimate', 'textarea', 'Which cert store?')
+  await press('Send prompt to your follow-up to @ultimate')
+  expect(document.querySelector('[data-todo-pane="3"]')?.textContent).toMatch(
+    /Sent to.*#69.*Awaiting reply.*Open conversation/,
+  )
   expect(harness.actions).toContainEqual({
     name: 'update',
     args: { id: 3, text: 'Renew the production cert' },
@@ -141,6 +160,15 @@ it('adds, edits and acts on Inbox to-dos as the agent that pressed the control',
     source: 'agent',
   })
   expect(harness.submits).toEqual([
-    { text: 'Help me with to-do #3: Renew the cert', source: 'agent' },
+    {
+      text: 'About my to-do #3: Renew the cert\n\nWhich cert store?',
+      whenBusy: 'followUp',
+      source: 'agent',
+    },
   ])
+  expect(harness.actions).toContainEqual({
+    name: 'followUpStatus',
+    args: { submissionId: 412, conversationId: 69 },
+    source: 'person',
+  })
 })

@@ -79,6 +79,23 @@ export function shown<T extends Anchor>(entries: readonly T[], selected: Selecti
 
 export const UNLOADED = 0
 
+export const FOLLOW_UPS = 'ext.inbox.followUps'
+export const KEPT_RECEIPTS = 30
+export type Receipt = { to: ConversationId; submissionId: number; at: number }
+
+export const keepNewestReceipts = (receipts: Record<string, Receipt>): Record<string, Receipt> =>
+  Object.fromEntries(
+    Object.entries(receipts)
+      .toSorted(([, a], [, b]) => b.at - a.at)
+      .slice(0, KEPT_RECEIPTS),
+  )
+
+export const withContext = (context: string, text: string) =>
+  text.trim() ? `${context}\n\n${text.trim()}` : context
+
+export const questionContext = (message: Pick<Message, 'id' | 'text'>) =>
+  `About your question #${message.id} (“${markdownText(message.text, true).slice(0, 160)}”), sent from the Inbox. This is not an answer: the question stays open.`
+
 export function selectionAfterChange(
   entries: readonly Anchor[],
   selected: Selection,
