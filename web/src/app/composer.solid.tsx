@@ -481,9 +481,12 @@ function ComposerEditor(props: {
   })
 
   let editor: HTMLTextAreaElement | undefined
-  onSettled(() => {
-    if (!touchKeyboard()) editor?.focus()
-  })
+  createEffect(
+    () => !prompt(),
+    (autofocus) => {
+      if (autofocus && !touchKeyboard()) editor?.focus()
+    },
+  )
 
   const label = () =>
     prompt()?.label ?? (id() === undefined ? 'the conversation' : `conversation #${id()}`)

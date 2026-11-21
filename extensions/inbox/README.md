@@ -3,8 +3,7 @@
 Everything that waits on the user, in urgency order, answered in place: the `inbox` surface, first tab after Agent. Its
 items are the open questions in the live Messages log merged with the items other extensions provide (`items.ts`);
 a question leaves the moment it is answered or dismissed, wherever
-that happened, a provided item when its provider stops listing it. Browser only: no `server.ts`, no documents, no
-actions of its own.
+that happened, a provided item when its provider stops listing it.
 
 ## Provided items (`ui.tsx`)
 
@@ -51,6 +50,14 @@ clears `open` without forgetting the selection.
 `inbox:open {key}` event does the same at runtime (a push notification's tap, `extensions/push`). A plain number, in
 either or as `inbox:open {message}`, is a question's message id. A link to an entry that has not loaded yet keeps
 its key with `at: 0`, so the entry shows when it arrives and the selection takes its real age.
+
+## Follow-ups
+
+Ask the conversation that owns an Inbox item without answering the card or marking the item done. Questions go to
+the asker; to-dos go to `@ultimate` in this project. The shared composer supports file and image attachments.
+After sending, the item links to the recipient's conversation and shows the status of its most recent prompt.
+`followUpStatus { submissionId }` reads the input in that conversation: `pending`, `replied`, or `no-reply`.
+It is a read-only polling action and does not infer a reply from other activity in the conversation.
 
 ## Elsewhere
 
