@@ -72,14 +72,22 @@ export const RenameAction = actionRef<{ id: ConversationId; title: string }, { o
   'rename',
 )
 /**
- * `{ ids }` → `{ concluded, stopped, previews, kept }`: conclude these conversations, stop the work they and their
- * subagents still run (`stopped` lists the conversations that were busy) and the previews they started (`previews`, by
- * instance id), then free their worktrees; `kept` lists the worktrees kept because they are busy or hold unlanded work.
- * A caller inside a concluded tree is not stopped: it would wait on itself.
+ * `{ ids, force? }` → `{ concluded, stopped, previews, kept, refused }`: conclude these conversations, stop the work
+ * they and their subagents still run (`stopped` lists the conversations that were busy) and the previews they started
+ * (`previews`, by instance id), then free their worktrees; `kept` lists the worktrees kept because they are busy or hold
+ * unlanded work. An in-process agent call without `force: true` skips each tree with live foreground work and reports
+ * its requested id and reason in `refused`. The browser needs no `force`. A caller inside a concluded tree is not
+ * stopped: it would wait on itself.
  */
 export const ConcludeAction = actionRef<
-  { ids: ConversationId[] },
-  { concluded: ConversationId[]; stopped: ConversationId[]; previews: string[]; kept: KeptWork[] }
+  { ids: ConversationId[]; force?: boolean },
+  {
+    concluded: ConversationId[]
+    stopped: ConversationId[]
+    previews: string[]
+    kept: KeptWork[]
+    refused: { id: ConversationId; reason: string }[]
+  }
 >('conversations', 'conclude')
 /** `{ ids }` → `{ resumed }`: resume these conversations and their ancestors; `resumed` lists the ones concluded before. */
 export const ResumeAction = actionRef<{ ids: ConversationId[] }, { resumed: ConversationId[] }>(

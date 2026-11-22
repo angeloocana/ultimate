@@ -130,8 +130,14 @@ export const actions = {
   activity: implementAction(ActivityAction, (args, { host, signal }) =>
     activityStats(host.harness(), conversationIds(args), withAbortSignal(signal, context)),
   ),
-  conclude: implementAction(ConcludeAction, async (args, { host, conversationId, device }) =>
-    concludeAndStopOtherTrees(host, conversationIds(args), device ? undefined : conversationId),
+  conclude: implementAction(
+    ConcludeAction,
+    async (args, { host, conversationId, device, source }) => {
+      const ids = conversationIds(args)
+      const force = args && typeof args === 'object' && !Array.isArray(args) && args.force === true
+      const refuseBusy = !device && source === 'agent' && !force
+      return concludeAndStopOtherTrees(host, ids, device ? undefined : conversationId, refuseBusy)
+    },
   ),
   resume: implementAction(ResumeAction, async (args, { host }) => {
     const ids = conversationIds(args)
@@ -178,33 +184,58 @@ export const actions = {
 async function concludeAndStopOtherTrees(
   host: ExtensionHost,
   ids: ConversationId[],
-  from?: ConversationId,
+  from: ConversationId | undefined,
+  refuseBusy: boolean,
 ) {
   const harness = host.harness()
-  const { tree, callerWouldWaitForItself } = await harness.commit(async (tx) => {
-    const owned = await concludeIn(host, tx, ids, from ?? 'user')
-    return { tree: owned, callerWouldWaitForItself: from !== undefined && owned.has(from) }
+  const { concluded, tree, busy, refused } = await harness.commit(async (tx) => {
+    await validateConclusion(host, tx, ids)
+    const owned = await ownedTree(tx, ids)
+    const foreground = await foregroundConversations(tx)
+    const refusedRoots = new Set<ConversationId>()
+    if (refuseBusy) {
+      for (const [id, root] of owned) if (foreground.has(id)) refusedRoots.add(root)
+    }
+    const accepted = ids.filter((id) => !refusedRoots.has(id))
+    const acceptedTree = [...owned].filter(([, root]) => !refusedRoots.has(root)).map(([id]) => id)
+    if (accepted.length) await recordConclusion(host, tx, accepted, acceptedTree, from ?? 'user')
+    return {
+      concluded: accepted,
+      tree: acceptedTree,
+      busy: foreground,
+      refused: ids
+        .filter((id) => refusedRoots.has(id))
+        .map((id) => ({ id, reason: 'busy: pass force: true to stop it' })),
+    }
   }, context)
+  if (!concluded.length) return { concluded, stopped: [], previews: [], kept: [], refused }
+
   const stopped: ConversationId[] = []
-  if (!callerWouldWaitForItself) {
-    const busy = new Set(
-      (await harness.inspect(context)).tasks.flatMap(({ record: task }) =>
-        task.conversationId !== undefined && !task.background ? [task.conversationId] : [],
-      ),
-    )
-    stopped.push(...[...tree].filter((id) => busy.has(id)).toSorted((a, b) => a - b))
-    const includeBackgroundTasks = true
-    for (const id of ids)
-      await (
-        await harness.conversation(id, context)
-      )?.abort(context, { background: includeBackgroundTasks })
+  if (from === undefined || !tree.includes(from)) {
+    stopped.push(...tree.filter((id) => busy.has(id)).toSorted((a, b) => a - b))
+    for (const id of concluded)
+      await (await harness.conversation(id, context))?.abort(context, { background: true })
   }
-  const previews = (await host.want(Previews)?.stop([...tree], context)) ?? []
-  const kept = (await host.want(Release)?.release(ids, context)) ?? []
-  return { concluded: ids, stopped, previews, kept }
+  const previews = (await host.want(Previews)?.stop(tree, context)) ?? []
+  const kept = (await host.want(Release)?.release(concluded, context)) ?? []
+  return { concluded, stopped, previews, kept, refused }
 }
+
+async function foregroundConversations(tx: Tx) {
+  const busy = new Set<ConversationId>()
+  for (const status of ['pending', 'running', 'waiting', 'sleeping', 'completing'] as const) {
+    let cursor: Cursor | undefined
+    do {
+      const page = await tx.scanTasks({ status, background: false }, 256, cursor)
+      for (const task of page.items) busy.add(task.conversationId)
+      cursor = page.next
+    } while (cursor !== undefined)
+  }
+  return busy
+}
+
 async function ownedTree(tx: Tx, ids: ConversationId[]) {
-  const tree = new Set(ids)
+  const tree = new Map(ids.map((id) => [id, id]))
   const owners = new Map<ConversationId, ConversationId>()
   let cursor: Cursor | undefined
   do {
@@ -215,8 +246,9 @@ async function ownedTree(tx: Tx, ids: ConversationId[]) {
   for (const id of owners.keys()) {
     const chain: ConversationId[] = []
     for (let at: ConversationId | undefined = id; at !== undefined; at = owners.get(at)) {
-      if (tree.has(at)) {
-        for (const below of chain) tree.add(below)
+      const root = tree.get(at)
+      if (root !== undefined) {
+        for (const below of chain) tree.set(below, root)
         break
       }
       chain.push(at)
@@ -230,12 +262,28 @@ export async function concludeIn(
   ids: ConversationId[],
   by: ConversationId | 'landing' | 'user',
 ) {
+  await validateConclusion(host, tx, ids)
+  const tree = [...(await ownedTree(tx, ids)).keys()]
+  await recordConclusion(host, tx, ids, tree, by)
+  return new Set(tree)
+}
+
+async function validateConclusion(host: Pick<ExtensionHost, 'doc'>, tx: Tx, ids: ConversationId[]) {
   for (const id of ids) {
     const found = await tx.conversation(id)
     if (!found) throw new Error(`Unknown conversation ${id}`)
     if (found.owner) throw new Error(`Conversation ${id} is owned, not a top-level conversation`)
     await refuseFixed(host, tx, id, 'concluded')
   }
+}
+
+async function recordConclusion(
+  host: Pick<ExtensionHost, 'emit'>,
+  tx: Tx,
+  ids: ConversationId[],
+  tree: ConversationId[],
+  by: ConversationId | 'landing' | 'user',
+) {
   const ui = await tx.doc(UiState, ROOT_CONVERSATION_ID)
   const previous = ui['ext.conversations.concluded']
   ui['ext.conversations.concluded'] = [
@@ -251,9 +299,7 @@ export async function concludeIn(
       : {}),
     ...Object.fromEntries(ids.map((id) => [id, now])),
   }
-  const tree = await ownedTree(tx, ids)
-  await host.emit(tx, Concluded, { conversations: [...tree].toSorted((a, b) => a - b), by })
-  return tree
+  await host.emit(tx, Concluded, { conversations: tree.toSorted((a, b) => a - b), by })
 }
 
 function conversationIds(args: ActionInput<{ ids: number[] }>): ConversationId[] {

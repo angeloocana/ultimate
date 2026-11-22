@@ -59,16 +59,19 @@ Actions are callable from the browser with `api.action` or by agents with
 `await ultimate.action('conversations', 'conclude', {ids: [N]})` in codemode. The browser never rewrites the concluded
 list. No state-key migration runs automatically.
 
-- `conclude {ids:number[]}`: validates top-level conversations (unknown ids, subagents, listed roots and standing agents
-  throw, refusing the whole call; a standing agent is one marked by the service's `setStanding`, which subagents calls
-  for residents and workspaces for landers, never by its label or title), deduplicates and
-  adds them to `ext.conversations.concluded` in one transaction. Then it stops them: `Conversation.abort({ background:
-  true })` aborts every task they own, subagents and their reporters included, withdraws queued inputs and waits until
-  they are idle. An agent concluding the tree it runs in is not stopped, since it would wait for itself. Next it stops
-  the previews the tree started through the `conversations.previews` extension point (instance provides it), and frees
-  their resources through `conversations.release`, which workspaces provides (its worktrees, keeping unlanded or
-  uncommitted work). Returns `{ concluded, stopped, previews, kept }`: `stopped` lists the conversations of the tree
-  that were busy, `previews` the stopped instance ids, `kept` which checkouts remain and why. Processes an agent started
+- `conclude {ids:number[], force?:boolean}`: validates top-level conversations (unknown ids, subagents, listed roots and
+  standing agents throw, refusing the whole call; a standing agent is one marked by the service's `setStanding`, which
+  subagents calls for residents and workspaces for landers, never by its label or title). An in-process agent call
+  without `force: true` skips each id whose conversation or owned descendants have live foreground work. Skipped
+  conversations are neither concluded nor stopped. Other ids continue; the browser can conclude busy conversations
+  without `force`. The action deduplicates accepted ids and adds them to `ext.conversations.concluded` in one
+  transaction. Then `Conversation.abort({ background: true })` aborts every task they own, subagents and their reporters
+  included, withdraws queued inputs and waits until they are idle. An agent concluding the tree it runs in is not
+  stopped, since it would wait for itself. Next it stops the previews the tree started through `conversations.previews`
+  (instance provides it) and frees resources through `conversations.release` (workspaces provides it, keeping unlanded
+  or uncommitted work). Returns `{ concluded, stopped, previews, kept, refused }`: `stopped` lists the conversations in
+  the trees that were busy, `previews` the stopped instance ids, `kept` which checkouts remain and why, and `refused`
+  lists `{ id, reason }` for busy trees skipped because the agent did not pass `force: true`. Processes an agent started
   by hand (`nohup`, `systemd-run`) are not tracked and keep running. Only this action stops work: the automatic
   conclude of a landed branch (lineage) and of an ended side chat call `concludeIn` once the conversation is idle.
 - `resume {ids:number[]}`: transactionally removes ids and their concluded ancestors from the list, returning

@@ -25,9 +25,9 @@ export type ConversationsService = {
   /** Read concluded conversations inside `tx`, including its pending changes. */
   concludedIn(tx: Tx): Promise<Set<ConversationId>>
   /**
-   * Conclude top-level conversations `ids` inside `tx`, as the Conclude action does before it frees their resources
-   * through `Release`; throws for unknown and owned conversations, roots and standing agents. Returns them with every
-   * conversation they own, as the `Concluded` event it emits lists them.
+   * Record the conclusion of top-level conversations `ids` inside `tx`; throws for unknown and owned conversations,
+   * roots and standing agents. Returns them with every conversation they own and emits `Concluded` for the tree.
+   * This service does not check for busy conversations or abort tasks; the Conclude action handles both.
    */
   concludeIn(
     tx: Tx,

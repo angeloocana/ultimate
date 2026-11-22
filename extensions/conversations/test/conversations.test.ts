@@ -654,7 +654,7 @@ it('conclude merges concurrent additions, deduplicates ids and returns kept chec
     conversationActions.conclude({ ids: [first, first] }, ctx),
     conversationActions.conclude({ ids: [second] }, ctx),
   ])
-  expect(results[0]).toEqual({ concluded: [first], stopped: [], previews: [], kept })
+  expect(results[0]).toEqual({ concluded: [first], stopped: [], previews: [], kept, refused: [] })
   expect(released).toEqual(expect.arrayContaining([[first], [second]]))
   expect((await server.host.uiState(context))['ext.conversations.concluded']).toEqual([
     first,
@@ -675,7 +675,43 @@ it('conclude merges concurrent additions, deduplicates ids and returns kept chec
   })
 })
 
-it('concluding a busy conversation stops it and the subagents it runs', async () => {
+it('an agent must explicitly force conclusion of a busy conversation', async () => {
+  const { server, create } = await launch()
+  const caller = await create()
+  const busy = await create()
+  const idle = await create()
+  server.host.faux!.setResponses([held])
+  await post(server, `/api/conversations/${busy}/submit`, { text: 'keep working' })
+  const running = async () => (await server.harness.snapshot(LiveDoc, busy, context))?.run
+  await until(async () => Boolean(await running()))
+
+  const conclude = (args: { ids: ConversationId[]; force?: boolean }) =>
+    server.extensions.invoke(
+      'conversations',
+      'conclude',
+      args,
+      AbortSignal.any([]),
+      caller,
+      'agent',
+    )
+  expect(await conclude({ ids: [busy, idle] })).toMatchObject({
+    concluded: [idle],
+    stopped: [],
+    refused: [{ id: busy, reason: 'busy: pass force: true to stop it' }],
+  })
+  expect((await server.host.uiState(context))['ext.conversations.concluded']).toEqual([idle])
+  expect(await running()).toBeDefined()
+
+  expect(await conclude({ ids: [busy], force: true })).toMatchObject({
+    concluded: [busy],
+    stopped: [busy],
+    refused: [],
+  })
+  expect((await server.host.uiState(context))['ext.conversations.concluded']).toEqual([idle, busy])
+  expect(await running()).toBeUndefined()
+})
+
+it('a user concluding a busy conversation stops it and the subagents it runs', async () => {
   const { server, create, action } = await launch()
   const id = await create()
   // The conversation starts a background worker, then both wait on answers that never come.
@@ -705,7 +741,7 @@ it('concluding a busy conversation stops it and the subagents it runs', async ()
   const result = await action('conclude', { ids: [id] })
   expect(result).toMatchObject({
     status: 200,
-    data: { result: { concluded: [id], stopped: [id, child()], previews: [] } },
+    data: { result: { concluded: [id], stopped: [id, child()], previews: [], refused: [] } },
   })
   expect(await running(id)).toBeUndefined()
   expect(await running(child())).toBeUndefined()
