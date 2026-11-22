@@ -1,3 +1,4 @@
+import { cpus } from 'node:os'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
@@ -6,7 +7,7 @@ export default defineConfig({
     setupFiles: ['test/setup.ts'],
     include: ['test/e2e/**/*.test.ts', 'extensions/*/test/e2e/**/*.test.ts'],
     testTimeout: 60_000,
-    maxWorkers: 8,
+    maxWorkers: Math.min(8, Math.max(2, Math.floor(cpus().length / 3))),
     // Like vite.config.ts: under an agent Vitest's minimal reporter is silent for passing files.
     reporters: ['default'],
   },
