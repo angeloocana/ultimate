@@ -1,7 +1,9 @@
 /** @jsxImportSource @solidjs/web */
 import { Pin, PinOff } from '@lucide/solid'
-import { createMemo, createSignal, For, onSettled, Show } from 'solid-js'
+import { action, createMemo, createOptimistic, createSignal, For, onSettled, Show } from 'solid-js'
+import type { ComponentProps } from 'solid-js'
 import { Button } from '@/components/ui/button.solid.tsx'
+import { Toggle } from '@/components/ui/toggle.solid.tsx'
 import { Skeleton } from '@/components/ui/skeleton.solid.tsx'
 import { ROOT, api, cn, keepLast, useAction, useExtensions, useViewport } from '@/sdk/solid'
 import { debounce } from '../../lib/timers.ts'
@@ -32,32 +34,32 @@ export function Rail() {
 }
 
 function ProjectsRail() {
-  const { projects: list, polling, watch } = useVisibleReads()
+  const { projects: list, showCount, whileVisible } = useVisibleReads()
   const shared = useAction(
     PinAction,
     {},
     {
       conversation: ROOT,
+      on: showCount,
       onError: keepLast,
-      every: () => (polling() ? SHARED_PIN_POLL_MS : undefined),
+      every: whileVisible(SHARED_PIN_POLL_MS),
     },
   )
-  watch(shared)
-  const [writing, setWriting] = createSignal<boolean>()
-  const [saved, setSaved] = createSignal<{ pinned: boolean; over: unknown }>()
-  const pinned = () => {
-    const ack = saved()
-    const answer = shared.data()
-    return writing() ?? (ack && answer === ack.over ? ack.pinned : (answer?.pinned ?? false))
-  }
-  const pin = async (next: boolean) => {
-    if (writing() !== undefined) return
-    setWriting(next)
-    await api
+  const answer = createMemo(() => shared.data())
+  const [acknowledged, setAcknowledged] = createSignal(() => answer()?.pinned ?? false)
+  const [pinned, setPinned] = createOptimistic(acknowledged)
+  const pin = action(function* (next: boolean) {
+    setPinned(next)
+    const saved: { pinned: boolean } | undefined = yield api
       .action(PinAction, { pinned: next })
-      .then((answer) => setSaved({ pinned: answer.pinned, over: shared.data() }), keepLast)
-    setWriting()
-    await shared.refetch()
+      .catch(keepLast)
+    if (!saved) return
+    setAcknowledged(saved.pinned)
+    yield shared.refetch()
+  })
+  let saving: Promise<void> | undefined
+  const press = (next: boolean) => {
+    saving ??= pin(next).finally(() => (saving = undefined))
   }
 
   const [hover, setHover] = createSignal(false)
@@ -106,11 +108,11 @@ function ProjectsRail() {
               <span class="ml-1.5 font-mono text-[11px] text-muted-foreground/60 tabular-nums">
                 {projects().length || ''}
               </span>
-              <Button
+              <Toggle
                 aria-label={pinned() ? 'Unpin the projects rail' : 'Pin the projects rail open'}
-                aria-pressed={pinned() ? 'true' : 'false'}
-                class="mr-2 ml-auto text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground aria-pressed:text-foreground"
-                onClick={() => pin(!pinned())}
+                pressed={pinned()}
+                class="mr-2 ml-auto text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground data-pressed:bg-transparent data-pressed:text-foreground data-pressed:hover:bg-sidebar-accent"
+                onPressedChange={press}
                 size="icon-xs"
                 title={pinned() ? 'Unpin: open on hover' : 'Pin: keep open beside the app'}
                 variant={null}
@@ -118,7 +120,7 @@ function ProjectsRail() {
                 <Show when={pinned()} fallback={<Pin class="size-3.5" />}>
                   <PinOff class="size-3.5" />
                 </Show>
-              </Button>
+              </Toggle>
             </Show>
           </div>
           <div class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pt-2 pb-2 [scrollbar-width:none]">
@@ -193,90 +195,106 @@ function Row(props: {
 }) {
   const { here, pending, busy, questions, to, unreachable, title, navigate, name, port } =
     useProjectLink(() => props.project)
-  return (
-    <div class={cn(props.first && props.gap && 'mt-2')}>
-      <a
-        aria-current={here() ? 'page' : undefined}
-        aria-label={title()}
+  const href = () => to().href
+  const control = (render?: ComponentProps<typeof Button>['render']) => (
+    <Button
+      aria-current={here() ? 'page' : undefined}
+      aria-label={title()}
+      class={cn(
+        'group relative mx-1.5 flex h-10 items-center justify-start gap-0 rounded-lg text-left font-normal whitespace-normal outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset',
+        unreachable()
+          ? 'disabled:opacity-45 data-disabled:opacity-45'
+          : 'disabled:opacity-100 data-disabled:opacity-100',
+        props.wide && (here() ? 'bg-sidebar-accent' : 'hover:bg-sidebar-accent/50'),
+      )}
+      data-project={props.project.name}
+      disabled={!href()}
+      onClick={navigate}
+      render={render}
+      size={null}
+      variant={null}
+    >
+      <span
         class={cn(
-          'group relative mx-1.5 flex h-10 items-center rounded-lg text-left outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset',
-          unreachable() && 'opacity-45',
-          props.wide && (here() ? 'bg-sidebar-accent' : 'hover:bg-sidebar-accent/50'),
+          'absolute -left-1.5 w-[3px] rounded-r-full transition-all duration-150',
+          here() || pending() ? 'h-6 bg-brand' : 'h-0 bg-muted-foreground/60 group-hover:h-3',
+          pending() && 'animate-pulse-dot',
         )}
-        data-project={props.project.name}
-        href={to().href}
-        onClick={navigate}
-        title={title()}
+      />
+      <span
+        class={cn(
+          'flex h-full w-11 shrink-0 justify-center',
+          !props.first && 'pt-px',
+          !props.last && 'pb-px',
+        )}
       >
-        <span
-          class={cn(
-            'absolute -left-1.5 w-[3px] rounded-r-full transition-all duration-150',
-            here() || pending() ? 'h-6 bg-brand' : 'h-0 bg-muted-foreground/60 group-hover:h-3',
-            pending() && 'animate-pulse-dot',
-          )}
-        />
-        <span
-          class={cn(
-            'flex h-full w-11 shrink-0 justify-center',
-            !props.first && 'pt-px',
-            !props.last && 'pb-px',
-          )}
-        >
-          <span class="relative flex h-full w-5 justify-center">
-            <ProjectSwatch
-              class={cn(
-                'h-full transition-[width,opacity] duration-150',
-                here() || pending()
-                  ? 'w-5'
-                  : 'w-3 opacity-70 group-hover:w-4 group-hover:opacity-100',
-                here() && 'outline-1 outline-offset-2 outline-foreground/45',
-                props.first ? 'rounded-t-md' : 'rounded-t-[1px]',
-                props.last ? 'rounded-b-md' : 'rounded-b-[1px]',
-                pending() && 'animate-pulse-dot',
-              )}
-              family={props.family}
-              folder={props.project.name}
-            />
-            <Show when={!props.wide}>
-              <Show
-                when={questions() > 0}
-                fallback={
-                  <Show when={busy()}>
-                    <span class="absolute inset-0 m-auto size-2 animate-pulse-dot rounded-full bg-brand ring-2 ring-sidebar" />
-                  </Show>
-                }
-              >
-                <span class="absolute inset-0 m-auto flex h-4 w-fit min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 font-mono text-[9.5px] leading-none font-semibold text-black tabular-nums ring-2 ring-sidebar">
-                  {questions()}
-                </span>
-              </Show>
-            </Show>
-          </span>
-        </span>
-        <Show when={props.wide}>
-          <span class="flex min-w-0 flex-1 items-center gap-2 pr-2.5 pl-1.5">
-            <span class="flex min-w-0 flex-1 flex-col">
-              <span
-                class={cn(
-                  'truncate text-[13px] leading-5',
-                  here() ? 'font-semibold text-foreground' : 'text-foreground/85',
-                )}
-              >
-                {name()}
-              </span>
-              <span class="flex min-w-0 items-center gap-1.5 font-mono text-[10px] leading-4 text-muted-foreground/80">
-                <Show when={!pending()} fallback={<span class="text-brand">opening…</span>}>
-                  <Show when={props.project.repo}>
-                    {(repo) => <RepoLabel class="min-w-0" repo={repo()} />}
-                  </Show>
-                  <span class="shrink-0 text-muted-foreground/50">{port()}</span>
+        <span class="relative flex h-full w-5 justify-center">
+          <ProjectSwatch
+            class={cn(
+              'h-full transition-[width,opacity] duration-150',
+              here() || pending()
+                ? 'w-5'
+                : 'w-3 opacity-70 group-hover:w-4 group-hover:opacity-100',
+              here() && 'outline-1 outline-offset-2 outline-foreground/45',
+              props.first ? 'rounded-t-md' : 'rounded-t-[1px]',
+              props.last ? 'rounded-b-md' : 'rounded-b-[1px]',
+              pending() && 'animate-pulse-dot',
+            )}
+            family={props.family}
+            folder={props.project.name}
+          />
+          <Show when={!props.wide}>
+            <Show
+              when={questions() > 0}
+              fallback={
+                <Show when={busy()}>
+                  <span class="absolute inset-0 m-auto size-2 animate-pulse-dot rounded-full bg-brand ring-2 ring-sidebar" />
                 </Show>
+              }
+            >
+              <span class="absolute inset-0 m-auto flex h-4 w-fit min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 font-mono text-[9.5px] leading-none font-semibold text-black tabular-nums ring-2 ring-sidebar">
+                {questions()}
               </span>
+            </Show>
+          </Show>
+        </span>
+      </span>
+      <Show when={props.wide}>
+        <span class="flex min-w-0 flex-1 items-center gap-2 pr-2.5 pl-1.5">
+          <span class="flex min-w-0 flex-1 flex-col">
+            <span
+              class={cn(
+                'truncate text-[13px] leading-5',
+                here() ? 'font-semibold text-foreground' : 'text-foreground/85',
+              )}
+            >
+              {name()}
             </span>
-            <ProjectState busy={busy()} questions={questions()} />
+            <span class="flex min-w-0 items-center gap-1.5 font-mono text-[10px] leading-4 text-muted-foreground/80">
+              <Show when={!pending()} fallback={<span class="text-brand">opening…</span>}>
+                <Show when={props.project.repo}>
+                  {(repo) => <RepoLabel class="min-w-0" repo={repo()} />}
+                </Show>
+                <span class="shrink-0 text-muted-foreground/50">{port()}</span>
+              </Show>
+            </span>
           </span>
-        </Show>
-      </a>
+          <ProjectState busy={busy()} questions={questions()} />
+        </span>
+      </Show>
+    </Button>
+  )
+  return (
+    <div class={cn(props.first && props.gap && 'mt-2')} title={title()}>
+      <Show when={href()} fallback={control()}>
+        {(link) =>
+          control((anchor) => (
+            <a {...anchor} href={link()}>
+              {anchor.children}
+            </a>
+          ))
+        }
+      </Show>
     </div>
   )
 }

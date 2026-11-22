@@ -48,11 +48,11 @@ All three actions are user-only (`userActions`); agents cannot call them. Inputs
   - `SideChatDoc` gains `question` and `tokens`: the asker's context at the fork, shown in the sheet header as the cost of the first turn.
   - `SideChatsDoc` sits on the asker.
   - `QuestionSidesDoc` (`sidechat.questions`, on conversation 1) lists every question side chat, so a card or the Inbox finds its own with one subscription.
-- **Lineage:** lineage skips its catch-up note for any side chat, so a branch's copy is not flooded with the tally. Side chats stay out of the sidebar's lists through `Unlisted`.
+- **Lineage:** lineage skips its catch-up note for any side chat, so a quick question is not preceded by the commits that landed since. Side chats stay out of the sidebar's lists through `Unlisted`.
 
 ## Safety and attribution
 
-`effects` is sticky and committed **before** a potentially effectful tool executes. It deliberately locks Discard even if that call subsequently fails: a crash must not leave an effect behind while Discard is still permitted. Tracked: branch, message, note, notify, remember, setup, restart, edit, write; todo add/done; automation except list/runs/log. Bash and codemode themselves are not tracked (their nested tracked tools still are).
+`effects` is sticky and committed **before** a potentially effectful tool executes. It deliberately locks Discard even if that call subsequently fails: a crash must not leave an effect behind while Discard is still permitted. Tracked: branch, message, note, notify, setup, restart, edit, write; todo add/done; automation except list/runs/log. Bash and codemode themselves are not tracked (their nested tracked tools still are).
 
 Message, branch, note, notify and automation create/subscribe act as main via `lib/acting-as.ts`, which reads the sidechat document by kind and adds no dependency from core to this optional extension. Replies, branch reports, notification tasks and default automation subscribers therefore belong to main. A message to user keeps the copy's own identity, so it never speaks as @ultimate. A message to @ultimate is refused as messaging yourself. Branch starts, reply-requesting messages, notifications and automation create/subscribe also leave one deduplicated, non-waking provenance note in main.
 

@@ -1,6 +1,6 @@
 /** @jsxImportSource @solidjs/web */
 import { createMemo, createRoot, createSignal, onSettled, Show } from 'solid-js'
-import { keepLast, prettyName, useAction } from '@/sdk/solid'
+import { keepLast, prettyName, useAction, usePageVisible } from '@/sdk/solid'
 import { deadline } from '../../lib/timers.ts'
 import { destination, shownPort } from './links.ts'
 import { ListAction } from './refs.ts'
@@ -34,28 +34,16 @@ export function OpeningBar() {
 }
 
 export function useVisibleReads(active: () => boolean = () => true) {
-  const [visible, setVisible] = createSignal(true)
-  const polling = () => active() && visible()
+  const visible = usePageVisible()
+  const polling = createMemo(() => active() && visible())
+  const showCount = createMemo<number>((previous) => (previous ?? 0) + Number(polling()))
+  const whileVisible = (ms: number) => () => (polling() ? ms : undefined)
   const projects = useAction(ListAction, null, {
+    on: showCount,
     onError: keepLast,
-    every: () => (polling() ? VISIBLE_PROJECTS_POLL_MS : undefined),
+    every: whileVisible(VISIBLE_PROJECTS_POLL_MS),
   })
-  const watch = (...others: { refetch: () => unknown }[]) => {
-    onSettled(() => {
-      const shownNow = () => document.visibilityState === 'visible'
-      setVisible(shownNow())
-      const changed = () => {
-        setVisible(shownNow())
-        if (shownNow() && active()) {
-          void projects.refetch()
-          for (const other of others) void other.refetch()
-        }
-      }
-      document.addEventListener('visibilitychange', changed)
-      return () => document.removeEventListener('visibilitychange', changed)
-    })
-  }
-  return { projects, polling, watch }
+  return { projects, showCount, whileVisible }
 }
 
 export function useProjectLink(project: () => RunningProject) {

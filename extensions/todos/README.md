@@ -31,8 +31,8 @@ project's @ultimate to add one with `ultimate.tell`.
 ## Inbox
 
 Open to-dos for the user appear beside open questions, under keys like `todo:12`. Tap a to-do to edit it, mark it done,
-or write @ultimate about it in its follow-up box (text and attachments, Inbox's `FollowUp`). **Add** creates a to-do
-for either owner. The header’s menu holds **@ultimate’s tasks** and **Completed to-dos**; neither counts toward what
+or write @ultimate about it in its follow-up box (text and attachments, Inbox's `FollowUp`). Web and Obsidian URLs
+are tappable once the to-do is open; tapping a link does not mark the task done. **Add** creates a to-do for either owner. The header’s menu holds **@ultimate’s tasks** and **Completed to-dos**; neither counts toward what
 waits on the user. Completed items can be reopened. **Start** on one of @ultimate's tasks opens the same box in the
 dialog. Either sends `About my to-do #id: …` (or `Work on your to-do #id: …`) plus the user's text as a follow-up and
 shows where it went and whether a reply arrived, without leaving the Inbox.

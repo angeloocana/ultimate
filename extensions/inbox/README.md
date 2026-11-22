@@ -9,9 +9,10 @@ stops listing it.
 
 Another extension puts its own things to do in the Inbox by providing the `InboxItems` point from its
 `web.solid.tsx`: `provide(InboxItems, () => items)`, where `items` is an accessor of
-`{ key, at, conversation?, tag, title, gist?, priority?, due?, pane }[]`. `key` is unique across providers (`shell:12`),
-`at` is when it started waiting in epoch milliseconds, `tag` is the row's kind tag, and `pane` is a function rendering
-the reading pane's content below the title. With `conversation` the row names it and the pane offers **Open in branch**.
+`{ key, at, conversation?, tag, title, heading?, gist?, priority?, due?, pane }[]`. `key` is unique across providers
+(`shell:12`), `at` is when it started waiting in epoch milliseconds, and `tag` is the row's kind tag. `pane` renders the
+reading pane's content below the title; `heading` can render the title there without making the list row interactive.
+With `conversation` the row names it and the pane offers **Open in branch**.
 `priority` is `high`, `normal` (the default for sorting) or `low`; `due` is a local calendar date (`YYYY-MM-DD`).
 The sidebar reads the merged, age-ordered `Waiting` from `ui.solid.tsx`. Providers return `undefined` until loaded and
 `[]` when loaded but empty. The Inbox waits for its sources before advancing past a missing selection. A provider

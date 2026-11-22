@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button.solid.tsx'
 import { ExtensionName, definePoint, provide } from '@/sdk/solid'
 import { SOURCE_HEADER } from '../../../../shared/protocol.ts'
 import type { SystemInfo } from '../../../../shared/protocol.ts'
-import { FakeSource } from '../../../../test/web/fake-source.ts'
+import type { FakeSource, fakeSubscriptions } from '../../../../test/web/fake-source.ts'
 import { expectDistinctAgentNames } from '../../../../test/web/agent-names.ts'
 import { renderSolid } from '../../../../test/web/solid-dom-setup.ts'
 import type { Todo } from '../../refs.ts'
@@ -15,6 +15,7 @@ import type { Todo } from '../../refs.ts'
 const harness = vi.hoisted(() => ({
   sources: [] as FakeSource[],
   actions: [] as { name: string; args: unknown; source: string | null }[],
+  subscriptions: undefined as ReturnType<typeof fakeSubscriptions> | undefined,
 }))
 vi.mock('../../../../web/src/sdk/client.ts', async () => {
   const { createStore } = await import('../../../../web/src/sdk/store.ts')
@@ -22,7 +23,10 @@ vi.mock('../../../../web/src/sdk/client.ts', async () => {
   const { createReads } = await import('../../../../web/src/sdk/reads.ts')
   const { createUiState } = await import('../../../../web/src/sdk/ui-state.ts')
   const { createRegistry } = await import('../../../../web/src/sdk/registry.ts')
-  const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const { FakeSource, fakeSubscriptions } = await import('../../../../test/web/fake-source.ts')
+  const subscriptions = fakeSubscriptions(harness.sources, (path, init) => fetch(path, init))
+  harness.subscriptions = subscriptions
+  const fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const path = input as string
     const source = new Headers(init?.headers).get(SOURCE_HEADER)
     if (path === '/api/extensions/inbox/actions/submitFollowUp') {
@@ -31,9 +35,7 @@ vi.mock('../../../../web/src/sdk/client.ts', async () => {
       return Response.json({ result: { to: conversationId, submissionId: 412, at: Date.now() } })
     }
     if (path === '/api/extensions/inbox/actions/followUpStatus') {
-      const { args, conversationId } = JSON.parse(init!.body as string)
-      harness.actions.push({ name: 'followUpStatus', args: { ...args, conversationId }, source })
-      return Response.json({ result: { status: 'pending' } })
+      return Response.json({ result: { status: 'replied' } })
     }
     if (path === '/api/extensions/subagents/actions/standing') {
       harness.actions.push({
@@ -44,7 +46,7 @@ vi.mock('../../../../web/src/sdk/client.ts', async () => {
       return Response.json({ result: 69 })
     }
     const action = /^\/api\/extensions\/todos\/actions\/(\w+)$/.exec(path)
-    if (!action) return Response.json({ ok: true })
+    if (!action) return subscriptions.handle(path, init) ?? Response.json({ ok: true })
     const { args } = JSON.parse(init!.body as string) as { args: unknown }
     harness.actions.push({ name: action[1], args, source })
     return Response.json({ result: {} })
@@ -68,7 +70,7 @@ vi.mock('../../../../web/src/sdk/client.ts', async () => {
 })
 
 import { registry, store } from '../../../../web/src/sdk/client.ts'
-import { InboxTodoControls, TodoPane } from '../../inbox.solid.tsx'
+import { InboxTodoControls, TodoPane, TodoText } from '../../inbox.solid.tsx'
 
 const agent = createAgent()
 const todo = (id: number, owner: Todo['owner'], text: string): Todo => ({
@@ -112,6 +114,20 @@ it('makes references from a user extension actionable in the opened to-do', asyn
   })
   expect(result.ok).toBe(true)
   expect(open).toHaveBeenCalledExactlyOnceWith(12, item.text)
+})
+
+it('links web and Obsidian URLs in a to-do without enclosing punctuation', () => {
+  const web = 'https://example.com/a?b=1'
+  const note = 'obsidian://open?vault=my-vault&file=Project%20Notes'
+  const text = `Think (${note}), then see ${web}.`
+  const container = renderSolid(() => <TodoText text={text} />)
+  expect(container.textContent).toBe(text)
+  expect([...container.querySelectorAll('a')].map((link) => [link.textContent, link.href])).toEqual(
+    [
+      [note, note],
+      [web, web],
+    ],
+  )
 })
 
 it('adds, edits, acts on and follows up Inbox to-dos as the agent that pressed the control', async ({
@@ -187,7 +203,7 @@ it('adds, edits, acts on and follows up Inbox to-dos as the agent that pressed t
   expect(prompt()).toBe('Which cert store?')
   await press('Send prompt to @ultimate')
   expect(document.querySelector('[data-todo-pane="3"]')?.textContent).toMatch(
-    /Sent to.*#69.*Awaiting reply.*Open conversation/,
+    /Sent to.*#69.*Reply arrived.*Open conversation/,
   )
   await press('Mark done')
   expect(harness.actions).toContainEqual({
@@ -211,9 +227,10 @@ it('adds, edits, acts on and follows up Inbox to-dos as the agent that pressed t
     },
     source: 'agent',
   })
-  expect(harness.actions).toContainEqual({
-    name: 'followUpStatus',
-    args: { submissionId: 412, conversationId: 69 },
-    source: 'person',
+  expect(harness.subscriptions?.reads.map(({ read }) => read)).toContainEqual({
+    extension: 'inbox',
+    action: 'followUpStatus',
+    args: { submissionId: 412 },
+    conversation: 69,
   })
 })

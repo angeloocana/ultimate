@@ -3,7 +3,7 @@ import type { ConversationId } from '@earendil-works/pi-durable'
 // screen past the conversation into empty background. The answer card carries absolutely positioned `sr-only` legends
 // (one per question, extensions/questions/question.solid.tsx): without a positioned ancestor their containing block was the page,
 // so they laid themselves out at their static position below the window and stretched the document.
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import type { JsonValue } from '@earendil-works/chord/json'
 import { fauxAssistantMessage, fauxText, fauxToolCall } from '@earendil-works/pi-ai/providers/faux'
 import type { FauxResponseFactory } from '@earendil-works/pi-ai/providers/faux'
@@ -13,7 +13,7 @@ import { afterEach, expect, it } from 'vitest'
 import { browserBinary } from '../../../browser/server.ts'
 import { Started } from '../../../messages/addresses.ts'
 import { context } from '../../../../server/harness.ts'
-import { fauxServer, post, removeTemp, temp } from '../../../../test/helpers.ts'
+import { prebuiltServer, post, removeTemp, temp } from '../../../../test/helpers.ts'
 
 const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => {
@@ -50,9 +50,7 @@ const layout = (page: Page) =>
 async function setup() {
   const home = await temp('ultimate-inbox-layout-')
   cleanup.push(() => removeTemp(home))
-  const server = await fauxServer({
-    ultimateRoot: resolve('.'),
-    projectRoot: resolve('.'),
+  const server = await prebuiltServer({
     userHome: home,
     home: join(home, 'state'),
     port: 0,
@@ -198,7 +196,7 @@ it('opens deep links and keeps scrolling and answer keys in the reading pane', a
       await row.click()
       await page.keyboard.press('2')
       await pane
-        .getByRole('button', { name: 'in the status line at the bottom', pressed: true })
+        .locator('button[aria-current="true"]', { hasText: 'in the status line at the bottom' })
         .first()
         .waitFor()
     }

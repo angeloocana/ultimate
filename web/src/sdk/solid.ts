@@ -141,6 +141,7 @@ export type {
   UseActionOptions,
   WebExtension,
 } from './hooks.ts'
+export { useConversationWidth, useExternal, usePageVisible } from './page.ts'
 
 export { Card } from '../app/card.solid.tsx'
 /** The composer editor and attachments for a directed prompt, with a namespaced draft separate from conversations. */

@@ -19,6 +19,26 @@ import { TodoReferences } from './ui.solid.tsx'
 
 const dialog = 'max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] overflow-y-auto p-5 sm:max-w-[28rem]'
 const ultimate = () => api.action(StandingAction, { name: 'ultimate' })
+const webOrObsidianUrl = /((?:https?|obsidian):\/\/[^\s<>()]*[^\s<>().,;:!?'"])/
+
+export function TodoText(props: { text: string }) {
+  return (
+    <For each={props.text.split(webOrObsidianUrl)} keyed={false}>
+      {(part, index) => (
+        <Show when={index % 2} fallback={part()}>
+          <a
+            class="wrap-anywhere text-brand underline decoration-brand/40 underline-offset-2 hover:decoration-brand"
+            href={part()}
+            rel="noreferrer"
+            target="_blank"
+          >
+            {part()}
+          </a>
+        </Show>
+      )}
+    </For>
+  )
+}
 const todoContext = (todo: Todo) =>
   todo.owner === 'user'
     ? `About my to-do #${todo.id}: ${todo.text}`
@@ -189,7 +209,9 @@ function ManagedTodos(props: { group: Group }) {
               <For each={items()} keyed={(todo) => todo.id}>
                 {(todo) => (
                   <li class="space-y-1.5 py-2" data-managed-todo={todo().id}>
-                    <p class="break-words text-sm">{todo().text}</p>
+                    <p class="break-words text-sm">
+                      <TodoText text={todo().text} />
+                    </p>
                     <p class="flex flex-wrap gap-x-2 font-mono text-[11px] text-muted-foreground">
                       #{todo().id} · {todo().owner === 'user' ? 'You' : '@ultimate'} ·{' '}
                       {todo().priority ?? 'normal'}
@@ -279,7 +301,9 @@ function StartTodo(props: { todo: Todo; back: () => void }) {
         </Button>
         <DialogTitle>Start #{props.todo.id}</DialogTitle>
       </div>
-      <p class="break-words text-sm">{props.todo.text}</p>
+      <p class="break-words text-sm">
+        <TodoText text={props.todo.text} />
+      </p>
       <TodoFollowUp focus todo={props.todo} />
     </div>
   )

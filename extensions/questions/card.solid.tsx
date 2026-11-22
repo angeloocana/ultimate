@@ -43,6 +43,7 @@ import {
 import type { CardState, Draft } from './state.ts'
 
 const CHECK_LANDING_BEFORE_ADVANCE_MS = 320
+const KEEPALIVE_BYTES = 60 * 1024
 
 export const CardActions: Point<{ message: Message }, JSX.Element> = {
   point: 'questions.card-actions',
@@ -80,11 +81,11 @@ function AnswerCard(props: CardProps & { id: number }) {
   const card = () => cardKey(props.id)
   const [cards, setCards] = useUiState<Record<string, CardState>>(CARDS_KEY, {})
   const state = createMemo(() => cardOf(cards(), card(), questions()))
-  const change = (edit: (old: CardState) => CardState, automatic = false) => {
+  const change = (edit: (old: CardState) => CardState, unrecorded = false) => {
     const key = card()
     const list = questions()
     const write = () => setCards((old) => ({ ...old, [key]: edit(cardOf(old, key, list)) }))
-    if (automatic) writingAs('app', write)
+    if (unrecorded) writingAs('app', write)
     else write()
   }
   const answerRequest = () => {
@@ -150,7 +151,7 @@ function AnswerCard(props: CardProps & { id: number }) {
   let root!: HTMLDivElement
   let noteField!: HTMLTextAreaElement
   let advance: Cancel | undefined
-  let waiting: { cancel: Cancel; fire: (keepalive?: boolean) => void } | undefined
+  let waiting: { cancel: Cancel; fire: () => void } | undefined
   let committed = false
   const [phase, setPhase] = createSignal<Phase>('answering')
   const [heldDraft, setHeldDraft] = createSignal<Pick<CardState, 'drafts' | 'note'>>()
@@ -182,26 +183,30 @@ function AnswerCard(props: CardProps & { id: number }) {
           ?.focus({ preventScroll: true }),
       )
   }
-  const draft = (index: number, edit: (old: Draft) => Draft) =>
-    change((old) => ({
-      ...old,
-      drafts: { ...old.drafts, [index]: edit(old.drafts[index] ?? { chosen: [] }) },
-    }))
-  const select = (index: number, option: number, click = false) => {
+  const draft = (index: number, edit: (old: Draft) => Draft, typed = false) =>
+    change(
+      (old) => ({
+        ...old,
+        drafts: { ...old.drafts, [index]: edit(old.drafts[index] ?? { chosen: [] }) },
+      }),
+      typed,
+    )
+  const select = (index: number, option: number, click = false, pressed?: boolean) => {
     const question = questions()[index]
     const choice = question && choices(question)[option]
     if (!choice) return
     change((old) => {
       const previous = old.drafts[index] ?? { chosen: [] }
+      const on = pressed ?? !(choice.custom ? previous.other : previous.chosen.includes(option))
       const next =
         question.kind === 'multi'
           ? choice.custom
-            ? { ...previous, other: !previous.other }
+            ? { ...previous, other: on }
             : {
                 ...previous,
-                chosen: previous.chosen.includes(option)
-                  ? previous.chosen.filter((i) => i !== option)
-                  : [...previous.chosen, option].toSorted((a, b) => a - b),
+                chosen: on
+                  ? [...new Set([...previous.chosen, option])].toSorted((a, b) => a - b)
+                  : previous.chosen.filter((i) => i !== option),
               }
           : { ...previous, chosen: choice.custom ? [] : [option], other: !!choice.custom }
       return { ...old, current: index, drafts: { ...old.drafts, [index]: next } }
@@ -221,9 +226,9 @@ function AnswerCard(props: CardProps & { id: number }) {
     waiting = undefined
     unlock()
   }
-  const flushAnswer = (keepalive = false) => {
+  const flushAnswer = () => {
     waiting?.cancel()
-    waiting?.fire(keepalive)
+    waiting?.fire()
   }
   const send = (immediately = false, source?: string) => {
     const extra = note().trim()
@@ -233,13 +238,14 @@ function AnswerCard(props: CardProps & { id: number }) {
     committed = true
     advance?.()
     setHeldDraft({ drafts: drafts(), note: note() })
-    const fire = (keepalive = false) => {
+    const answer = { answers, ...(extra ? { note: extra } : {}) }
+    const outlivesPage =
+      new TextEncoder().encode(JSON.stringify(answer)).byteLength <= KEEPALIVE_BYTES
+    const fire = () => {
       waiting = undefined
       setPhase('sending')
       setError(undefined)
-      writingAs(source, () =>
-        reply({ answers, ...(extra ? { note: extra } : {}) }, keepalive),
-      ).then(
+      writingAs(source, () => reply(answer, outlivesPage)).then(
         () => setPhase('sent'),
         (failure: unknown) => {
           unlock()
@@ -256,7 +262,7 @@ function AnswerCard(props: CardProps & { id: number }) {
   const enter = () => {
     if (phase() === 'undo') return flushAnswer()
     if (locked()) return
-    if (beforeLast() && left()) go(current() + 1)
+    if (beforeLast()) go(current() + 1)
     else send()
   }
   const fieldKey = (event: KeyboardEvent & { currentTarget: HTMLInputElement }) => {
@@ -323,7 +329,7 @@ function AnswerCard(props: CardProps & { id: number }) {
   onSettled(() => {
     const listeners = new AbortController()
     window.addEventListener('keydown', onKey, { signal: listeners.signal })
-    window.addEventListener('pagehide', () => flushAnswer(true), { signal: listeners.signal })
+    window.addEventListener('pagehide', flushAnswer, { signal: listeners.signal })
     return () => {
       listeners.abort()
       advance?.()
@@ -346,7 +352,7 @@ function AnswerCard(props: CardProps & { id: number }) {
         placeholder="Your answer…"
         value={state().text}
         disabled={busy()}
-        onValueChange={(text) => change((old) => ({ ...old, text }))}
+        onValueChange={(text) => change((old) => ({ ...old, text }), true)}
         autocomplete="on"
         spellcheck
         class="h-auto min-h-8 flex-1 basis-40 border-border px-2.5 py-1 font-sans text-[13px] placeholder:text-muted-foreground/70 focus-visible:border-brand/60 focus-visible:ring-0 max-md:min-h-11"
@@ -409,8 +415,8 @@ function AnswerCard(props: CardProps & { id: number }) {
                   disabled={disabled()}
                   hints={hints()}
                   onOpen={() => go(index)}
-                  onSelect={(option) => select(index, option, true)}
-                  onText={(value) => draft(index, (old) => ({ ...old, text: value }))}
+                  onSelect={(option, pressed) => select(index, option, true, pressed)}
+                  onText={(value) => draft(index, (old) => ({ ...old, text: value }), true)}
                   onFieldKey={fieldKey}
                 />
               </div>
@@ -427,7 +433,7 @@ function AnswerCard(props: CardProps & { id: number }) {
               rows={1}
               value={note()}
               disabled={disabled()}
-              onValueChange={(value) => change((old) => ({ ...old, note: value }))}
+              onValueChange={(value) => change((old) => ({ ...old, note: value }), true)}
               onKeyDown={(event) => {
                 if (event.isComposing) return
                 if (event.key === 'Enter' && !event.shiftKey) {
@@ -474,7 +480,7 @@ function AnswerCard(props: CardProps & { id: number }) {
               </Show>
               <span class="flex items-center gap-1">
                 <Key>↵</Key>
-                {beforeLast() && left() ? 'next' : 'send'}
+                {beforeLast() ? 'next' : 'send'}
               </span>
               <Show when={questions()[current()] && word(current())}>
                 <span class="flex items-center gap-1">

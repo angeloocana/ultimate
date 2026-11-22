@@ -101,7 +101,7 @@ export function Reading(props: { entry: Entry; now: number; phone: boolean; onBa
             when={message()}
             fallback={
               <h2 class="mt-3 text-[17px] leading-7 font-semibold tracking-[-0.01em]">
-                {props.entry.item?.title}
+                {props.entry.item?.heading?.() ?? props.entry.item?.title}
               </h2>
             }
           >

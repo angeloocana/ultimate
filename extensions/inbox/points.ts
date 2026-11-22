@@ -11,6 +11,7 @@ export type InboxItem = {
   conversation?: ConversationId
   tag: string
   title: string
+  heading?: () => JSX.Element
   gist?: string
   pane: () => JSX.Element
 }

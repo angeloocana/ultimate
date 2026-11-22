@@ -268,7 +268,18 @@ export default defineConfig({
         rules: { 'ultimate/api-file-shape': 'error', 'ultimate/api-naming': 'error' },
       },
       {
-        files: ['extensions/**/*.tsx'],
+        files: [
+          'extensions/**/*.ts',
+          'extensions/**/*.tsx',
+          '.ultimate/extensions/**/*.ts',
+          '.ultimate/extensions/**/*.tsx',
+        ],
+        excludeFiles: [
+          'extensions/*/server.ts',
+          '.ultimate/extensions/*/server.ts',
+          'extensions/*/test/**',
+          '.ultimate/extensions/*/test/**',
+        ],
         rules: { 'ultimate/no-raw-stream': 'error' },
       },
       {
@@ -324,7 +335,9 @@ export default defineConfig({
           'jsx-a11y/control-has-associated-label': 'error',
           'jsx-a11y/label-has-associated-control': [
             'error',
-            { controlComponents: ['Switch', 'Checkbox', 'Slider', 'Input', 'SecretInput'] },
+            {
+              controlComponents: ['Switch', 'Checkbox', 'Slider', 'Input', 'SecretInput', 'Toggle'],
+            },
           ],
           'jsx-a11y/no-static-element-interactions': 'error',
           'jsx-a11y/click-events-have-key-events': 'error',
@@ -333,6 +346,10 @@ export default defineConfig({
           'jsx-a11y/prefer-tag-over-role': 'error',
           'jsx-a11y/no-autofocus': 'error',
         },
+      },
+      {
+        files: ['**/*.solid.tsx'],
+        rules: { 'ultimate/no-aria-pressed-button': 'error' },
       },
       {
         files: ['web/**', 'extensions/**', '.ultimate/extensions/**'],
@@ -369,7 +386,7 @@ export default defineConfig({
   test: {
     root: '.',
     environment: 'node',
-    globalSetup: ['test/sweep-temp.ts'],
+    globalSetup: ['test/sweep-temp.ts', 'test/whole-suite-lock.ts'],
     setupFiles: ['test/setup.ts', 'test/no-group-signals.ts'],
     // Core and integration tests in test/, each extension's own in extensions/<name>/test/: `pnpm test extensions/<name>/`
     // runs one extension's.

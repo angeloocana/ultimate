@@ -67,8 +67,7 @@ export function PhoneSwitch(props: { shown: boolean }) {
 
 function Picker(props: { expanded: ReturnType<typeof createSignal<boolean>> }) {
   const open = () => props.expanded[0]()
-  const { projects: list, watch } = useVisibleReads(open)
-  watch()
+  const { projects: list } = useVisibleReads(open)
   onSettled(() => {
     void list.refetch()
   })

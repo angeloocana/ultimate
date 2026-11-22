@@ -4,7 +4,7 @@ import { ROOT, defineWebExtension, provide, useDocOf, useSurface } from '@/sdk/s
 import { InboxItems } from '../inbox/ui.solid.tsx'
 import type { InboxItem } from '../inbox/ui.solid.tsx'
 import { TodoCall } from './call.solid.tsx'
-import { InboxTodoControls, TodoPane } from './inbox.solid.tsx'
+import { InboxTodoControls, TodoPane, TodoText } from './inbox.solid.tsx'
 import { ModelOnlyTodoReminder } from './note.solid.tsx'
 import { TodosDoc } from './refs.ts'
 
@@ -27,6 +27,7 @@ function useTodoItems() {
         at: todo.at,
         tag: 'to-do',
         title: todo.text,
+        heading: () => <TodoText text={todo.text} />,
         priority: todo.priority,
         due: todo.due,
         pane: () => <TodoPane todo={todo} />,

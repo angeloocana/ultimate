@@ -1,27 +1,29 @@
 import type { ConversationId } from '@earendil-works/pi-durable'
 import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/providers/faux'
-import { resolve, join } from 'node:path'
+import { join } from 'node:path'
 import { chromium } from 'playwright-core'
 import { expect, it } from 'vitest'
 import { browserBinary } from '../../extensions/browser/server.ts'
 import { Started } from '../../extensions/messages/addresses.ts'
 import { context } from '../../server/harness.ts'
-import { fauxServer, post, removeTemp, temp, until } from '../helpers.ts'
+import { prebuiltServer, post, removeTemp, temp, until } from '../helpers.ts'
 
 it('triages questions and to-dos together on a phone, with agent and completed tasks in the menu', async ({
   onTestFinished,
 }) => {
   const home = await temp('ultimate-todos-inbox-')
   onTestFinished(() => removeTemp(home))
-  const server = await fauxServer({
-    ultimateRoot: resolve('.'),
-    projectRoot: resolve('.'),
+  const server = await prebuiltServer({
     userHome: home,
     home: join(home, 'state'),
     port: 0,
   })
   onTestFinished(() => server.close())
-  const browser = await chromium.launch({ executablePath: await browserBinary(), headless: true })
+  const browser = await chromium.launch({
+    executablePath: await browserBinary(),
+    headless: true,
+    env: { ...process.env, TMPDIR: undefined },
+  })
   onTestFinished(() => browser.close())
   server.host.faux!.setResponses([
     fauxAssistantMessage(
@@ -61,7 +63,8 @@ it('triages questions and to-dos together on a phone, with agent and completed t
   await rows.filter({ hasText: 'Choose a color' }).waitFor()
   await page.getByRole('button', { name: 'Open add to-do form', exact: true }).tap()
   const add = page.getByRole('dialog', { name: 'Add to-do' })
-  await add.getByRole('textbox', { name: 'To-do text' }).fill('Call the clinic')
+  const clinic = 'https://example.com/clinic'
+  await add.getByRole('textbox', { name: 'To-do text' }).fill(`Call the clinic (${clinic})`)
   await add.getByText('Low', { exact: true }).tap()
   await add.locator('input[type=date]').fill('2000-01-01')
   await add.getByRole('button', { name: 'Create to-do' }).tap()
@@ -71,6 +74,13 @@ it('triages questions and to-dos together on a phone, with agent and completed t
   expect(await rows.first().textContent()).toContain('Overdue')
   await rows.filter({ hasText: 'Call the clinic' }).tap()
   const pane = page.locator('[data-inbox-item]').filter({ hasText: 'Call the clinic' })
+  const link = pane.getByRole('link', { name: clinic })
+  await page.context().route(clinic, (route) => route.fulfill({ body: 'Clinic' }))
+  const opened = page.waitForEvent('popup')
+  await link.tap()
+  const popup = await opened
+  await popup.waitForURL(clinic)
+  await popup.close()
   await pane.getByRole('button', { name: 'Edit', exact: true }).tap()
   const edit = page.getByRole('dialog', { name: 'Edit to-do' })
   await edit.getByRole('textbox', { name: 'To-do text' }).fill('Call the doctor')

@@ -1,12 +1,13 @@
 // The phone sidebar keeps its children mounted once it opened, so the project picker once kept the list it read on
 // first open (a lone project hid it for good) and kept polling every 4 s after the sidebar closed with it unfolded.
-import { mkdir, rm, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { chromium } from 'playwright-core'
 import type { Page } from 'playwright-core'
 import { afterEach, expect, it } from 'vitest'
 import { browserBinary } from '../../../browser/server.ts'
-import { fauxServer, removeTemp, temp } from '../../../../test/helpers.ts'
+import type { ReadSubscription, SubscriptionsRequest } from '../../../../shared/protocol.ts'
+import { prebuiltServer, removeTemp, temp } from '../../../../test/helpers.ts'
 
 const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => {
@@ -16,9 +17,7 @@ afterEach(async () => {
 async function setup() {
   const userHome = await temp('ultimate-phone-switch-')
   cleanup.push(() => removeTemp(userHome))
-  const server = await fauxServer({
-    ultimateRoot: resolve('.'),
-    projectRoot: resolve('.'),
+  const server = await prebuiltServer({
     userHome,
     home: join(userHome, '.ultimate/projects/here'),
     port: 0,
@@ -33,7 +32,6 @@ async function setup() {
     )
     await writeFile(join(other, 'ultimate.lock'), JSON.stringify({ pid: process.pid, port: 9 }))
   }
-  const stopOther = () => rm(other, { recursive: true, force: true })
   const browser = await chromium.launch({
     executablePath: await browserBinary(),
     headless: true,
@@ -41,22 +39,29 @@ async function setup() {
   })
   cleanup.push(() => browser.close())
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true })
-  let lists = 0
-  page.on('request', (request) => {
-    if (request.url().endsWith('/extensions/projects/actions/list')) lists++
-  })
-  await page.clock.install()
   await page.goto(`${server.url}/?conversation=1`)
   await page.locator('button[aria-label="Toggle sidebar"]').waitFor()
-  return { page, lists: () => lists, startOther, stopOther }
+  return { page, startOther }
 }
 
-async function listsAfter(page: Page, ms: number, lists: () => number) {
-  const before = lists()
-  await page.clock.runFor(ms)
-  await page.evaluate(() => fetch('/api/system'))
-  return lists() - before
+async function subscriptionChange(page: Page, matches: (change: SubscriptionsRequest) => boolean) {
+  const response = await page.waitForResponse((answer) => {
+    const request = answer.request()
+    if (request.method() !== 'POST' || !new URL(request.url()).pathname.startsWith('/api/events/'))
+      return false
+    return matches(request.postDataJSON() as SubscriptionsRequest)
+  })
+  expect(response.ok()).toBe(true)
+  return response.request().postDataJSON() as SubscriptionsRequest
 }
+
+const pollingList = (
+  subscription: SubscriptionsRequest['subscribe'][number],
+): subscription is ReadSubscription =>
+  'read' in subscription &&
+  subscription.read.extension === 'projects' &&
+  subscription.read.action === 'list' &&
+  subscription.every === 4_000
 
 const toggleSidebar = (page: Page) => page.locator('button[aria-label="Toggle sidebar"]').click()
 const sidebarProjectBlock = (page: Page) => page.locator('aside [data-root-context="1"]')
@@ -85,13 +90,14 @@ it('reads the running projects again each time the phone sidebar opens', async (
 })
 
 it('stops polling when the phone sidebar closes with the picker unfolded', async () => {
-  const { page, lists, startOther } = await setup()
+  const { page, startOther } = await setup()
   await startOther()
   await toggleSidebar(page)
+  const opened = subscriptionChange(page, ({ subscribe }) => subscribe.some(pollingList))
   await page.locator('[data-project-switch]').click()
   await page.locator('#project-switch-list a').nth(1).waitFor()
-  expect(await listsAfter(page, 4_500, lists)).toBeGreaterThan(0)
+  const { sub } = (await opened).subscribe.find(pollingList)!
+  const closed = subscriptionChange(page, ({ unsubscribe }) => unsubscribe.includes(sub))
   await closeSidebar(page)
-  await page.clock.runFor(500)
-  expect(await listsAfter(page, 9_000, lists)).toBe(0)
+  expect((await closed).subscribe.some(pollingList)).toBe(false)
 })
