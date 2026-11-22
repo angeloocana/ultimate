@@ -645,6 +645,7 @@ it('conclude merges concurrent additions, deduplicates ids and returns kept chec
   } as unknown as ExtensionHost
   const ctx = {
     host,
+    source: 'person' as const,
     signal: new AbortController().signal,
     exec: actionExec('.', new AbortController().signal),
     uiChanged: async () => undefined,

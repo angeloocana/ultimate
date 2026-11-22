@@ -3,7 +3,8 @@ import { createAgent } from '@ui-sdk/solid/agent'
 import { settle } from '@ui-sdk/core/testing'
 import { flush } from 'solid-js'
 import { expect, it, vi } from 'vitest'
-import { ExtensionName } from '@/sdk/solid'
+import { Button } from '@/components/ui/button.solid.tsx'
+import { ExtensionName, definePoint, provide } from '@/sdk/solid'
 import { SOURCE_HEADER } from '../../../../shared/protocol.ts'
 import type { SystemInfo } from '../../../../shared/protocol.ts'
 import { FakeSource } from '../../../../test/web/fake-source.ts'
@@ -66,7 +67,7 @@ vi.mock('../../../../web/src/sdk/client.ts', async () => {
   }
 })
 
-import { store } from '../../../../web/src/sdk/client.ts'
+import { registry, store } from '../../../../web/src/sdk/client.ts'
 import { InboxTodoControls, TodoPane } from '../../inbox.solid.tsx'
 
 const agent = createAgent()
@@ -83,6 +84,35 @@ const control = (label: string, component: string) => {
   if (!found) throw new Error(`Missing ${component}: ${label}`)
   return found
 }
+
+it('makes references from a user extension actionable in the opened to-do', async ({
+  onTestFinished,
+}) => {
+  const point = definePoint<{ id: number; text: string }, unknown>('todos.references')
+  const open = vi.fn<(id: number, text: string) => void>()
+  await registry.setLoaders({
+    'extensions/references/web.solid.tsx': async () => ({
+      default: {
+        provides: [
+          provide(point, (props: { id: number; text: string }) => (
+            <Button onClick={() => open(props.id, props.text)}>Open referenced document</Button>
+          )),
+        ],
+      },
+    }),
+  })
+  onTestFinished(() => registry.setLoaders({}))
+  const item = todo(12, 'user', 'Follow the instructions in docs/setup.md')
+  renderSolid(() => <TodoPane todo={item} />)
+  await settle()
+  flush()
+
+  const result = await agent.act({
+    steps: [{ ref: control('Open referenced document', 'button').ref, action: 'press' }],
+  })
+  expect(result.ok).toBe(true)
+  expect(open).toHaveBeenCalledExactlyOnceWith(12, item.text)
+})
 
 it('adds, edits, acts on and follows up Inbox to-dos as the agent that pressed the control', async ({
   onTestFinished,
