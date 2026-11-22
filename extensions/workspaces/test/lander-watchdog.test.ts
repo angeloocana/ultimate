@@ -98,6 +98,27 @@ it('names the tests that failed before the watchdog fired, even when they left t
   expect(failure.match(/FAIL/g)).toHaveLength(1)
 })
 
+it('reports the timeout when the stopped group then fails to exit', async () => {
+  vi.useFakeTimers()
+  vi.mocked(runGroup).mockImplementation(async (_program, _args, options) => {
+    options.onOutput(' FAIL  test/e2e/image-resize.test.ts > resizes\n')
+    await new Promise<void>((resolve) =>
+      options.signal!.addEventListener('abort', () => resolve(), { once: true }),
+    )
+    throw new Error('Process group 42 did not exit')
+  })
+  const ran = runLanderCheck('.', 'pnpm test:e2e', context, { stall: 1, total: 0.05 })
+  await vi.advanceTimersByTimeAsync(50)
+  const result = await ran
+  expect(result.failure).toMatch(
+    /^Timed out after 0.05 s; Error: Process group 42 did not exit\nFailed tests so far:\nFAIL {2}test\/e2e\/image-resize/,
+  )
+  expect(result.timedOut).toBe(true)
+  expect('cause' in result && result.cause).toBe(
+    'Timed out after 0.05 s; Error: Process group 42 did not exit: test/e2e/image-resize.test.ts > resizes',
+  )
+})
+
 it('names the failed tests of a check that exits nonzero', async () => {
   vi.mocked(runGroup).mockImplementation(async (_program, _args, options) => {
     options.onOutput(

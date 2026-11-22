@@ -209,6 +209,8 @@ export async function runLanderCheck(
       })
     } catch (error) {
       context.abortSignal?.throwIfAborted()
+      if (stopped)
+        return { ...report(`${stopped}; ${String(error)}`, 'Failed tests so far:'), timedOut: true }
       return { failure: `${output}\n${String(error)}`.trim(), cause: String(error) }
     }
     context.abortSignal?.throwIfAborted()
