@@ -1,4 +1,3 @@
-/** @jsxImportSource @solidjs/web */
 import { defineWebExtension, provide } from '@/sdk/solid'
 import { ProjectSwitch } from '../sidebar/ui.solid.tsx'
 import { OpeningBar } from './list.solid.tsx'

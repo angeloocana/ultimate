@@ -354,8 +354,7 @@ export function provide<Input, Value>(
 }
 
 /**
- * The browser facet of an extension: `extensions/<name>/web.solid.tsx` default-exports one. A `web.tsx` is React and
- * runs on the compat layer (docs/extensions/react-compat.md).
+ * The browser facet of an extension: `extensions/<name>/web.solid.tsx` default-exports one.
  */
 export interface WebExtension {
   slots?: Partial<Record<SlotName, Contribution | readonly Contribution[]>>
@@ -382,7 +381,7 @@ export interface WebExtension {
   messageActions?: readonly Component<{ entry: EntryRecord; text: string }>[]
   /** Readouts on the hover action row on stored messages, before its time, in discovery order. */
   messageDetails?: readonly Component<{ entry: EntryRecord }>[]
-  /** Inline labels after the Final answer heading on stored assistant messages. */
+  /** Inline labels after the Final answer heading on stored assistant messages, and above an answer cut off at the output limit. */
   answerLabels?: readonly Component<{ entry: EntryRecord }>[]
   /** Overlays on the user's bubble, rendered after it inside a positioned box exactly its size (`absolute inset-0`). */
   userBubble?: readonly Component<{ entry: EntryRecord }>[]

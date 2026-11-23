@@ -1,4 +1,3 @@
-/** @jsxImportSource @solidjs/web */
 import { Pin, PinOff } from '@lucide/solid'
 import { action, createMemo, createOptimistic, createSignal, For, onSettled, Show } from 'solid-js'
 import type { ComponentProps } from 'solid-js'

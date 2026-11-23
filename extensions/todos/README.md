@@ -26,7 +26,7 @@ run on its own. An unchanged list adds nothing. The note is never part of the sy
 
 Each project keeps its own list. Another project's @ultimate reads it with codemode
 `ultimate.doc('todos', 1, { project })` (see [codemode](../codemode/README.md#other-projects)) and asks this
-project's @ultimate to add one with `ultimate.tell`.
+project's @ultimate to add one with `tools.tell`.
 
 ## Inbox
 

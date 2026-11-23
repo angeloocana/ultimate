@@ -1,4 +1,3 @@
-/** @jsxImportSource @solidjs/web */
 import { For, Show, createEffect, createMemo, createUniqueId } from 'solid-js'
 import { Button } from '@/components/ui/button.solid.tsx'
 import { Kbd } from '@/components/ui/kbd.solid.tsx'

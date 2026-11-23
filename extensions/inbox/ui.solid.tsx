@@ -1,4 +1,3 @@
-/** @jsxImportSource @solidjs/web */
 /** Inbox for Solid: waiting items, open questions, and a prompt box for following up. */
 import { createMemo } from 'solid-js'
 import { useAllProvided, ROOT, useDocOf } from '@/sdk/solid'

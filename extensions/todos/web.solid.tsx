@@ -1,4 +1,3 @@
-/** @jsxImportSource @solidjs/web */
 import { createMemo, Show } from 'solid-js'
 import { ROOT, defineWebExtension, provide, useDocOf, useSurface } from '@/sdk/solid'
 import { InboxItems } from '../inbox/ui.solid.tsx'

@@ -242,7 +242,7 @@ export default function todosExtension(host: ExtensionHost) {
         name: 'todo',
         deferred: true,
         description:
-          "The project's to-dos, owned by you ('ultimate') or the user ('user'): add {text, owner, priority?, due?}, done {id}, list. Use priority 'high', 'normal' or 'low' and a local calendar due date (YYYY-MM-DD). The user manages to-dos in the Inbox; never add one for a question, which already appears there. Keep open loops here, not in codemode store. Other projects read this list with ultimate.doc('todos', 1, {project}) and ask you to add through ultimate.tell.",
+          "The project's to-dos, owned by you ('ultimate') or the user ('user'): add {text, owner, priority?, due?}, done {id}, list. Use priority 'high', 'normal' or 'low' and a local calendar due date (YYYY-MM-DD). The user manages to-dos in the Inbox; never add one for a question, which already appears there. Keep open loops here, not in codemode store. Other projects read this list with ultimate.doc('todos', 1, {project}) and ask you to add through tools.tell.",
         parameters: obj({
           action: strEnum(['add', 'done', 'list']),
           text: opt(str()),

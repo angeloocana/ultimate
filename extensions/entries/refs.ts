@@ -79,7 +79,15 @@ export type DeliveredMessage = {
   stopped?: boolean
   /** A remote reply sent while work serving the request goes on: the request stays open for the result. */
   interim?: true
+  /** A branch's final answer the judge weighed before it went to the starter. */
+  judged?: Judged
 }
+
+/**
+ * The judge's verdict on a branch's final answer `answer` (its entry in the branch): `report`, the probability that it
+ * wakes the starter, or `error`, why no verdict came (it then reports).
+ */
+export type Judged = { answer: EntryId } & ({ report: number } | { error: string })
 
 /** Message delivered as a conversation input. */
 export const MessageEntry = defineEntry<DeliveredMessage>('board.message')
@@ -98,3 +106,6 @@ export type AutomationInput = {
 
 /** Fired trigger delivered to a subscriber. */
 export const FiredEntry = defineEntry<AutomationInput>('automations.fired')
+
+/** A prompt run's answer, or its failure, delivered to a subscriber when the run ends. */
+export const FinishedEntry = defineEntry<AutomationInput>('automations.finished')

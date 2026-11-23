@@ -1,4 +1,3 @@
-/** @jsxImportSource @solidjs/web */
 /** To-do reading pane contributions for Solid and user extensions. */
 import { definePoint } from '@/sdk/solid'
 

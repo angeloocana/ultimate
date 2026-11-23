@@ -34,7 +34,7 @@ import { MessagesApi } from '../messages/api.ts'
 import { WorkspacesApi } from '../workspaces/api.ts'
 import { LineageApi } from '../lineage/api.ts'
 import { ConversationsApi } from '../conversations/api.ts'
-import { AutomationsApi } from './api.ts'
+import { AutomationsApi, Hold } from './api.ts'
 import {
   CreateAction,
   DeleteAction,
@@ -51,7 +51,7 @@ import {
   EscalateAction,
   EventsAction,
 } from './refs.ts'
-import { describeSchedule, nextAt, parseSchedule } from './schedule.ts'
+import { describeNext, describeSchedule, nextAt, parseSchedule } from './schedule.ts'
 import { scheduler } from './scheduler.ts'
 import { triggers, TRIGGER_EVENTS, describeTrigger } from './triggers.ts'
 import { supervisor } from './supervisor.ts'
@@ -170,6 +170,9 @@ function backend(host: ExtensionHost) {
     }
     throw new Error('subscribers must be #id or @name')
   }
+  const resolveAll = async (values: unknown[]) => [
+    ...new Set(await Promise.all(values.map(subscriber))),
+  ]
   async function prepareScript(args: Args, caller?: ConversationId): Promise<Prepared> {
     if (args.action === 'create') {
       if (!caller) throw new Error('create requires a caller conversation')
@@ -477,8 +480,6 @@ function backend(host: ExtensionHost) {
       if (args.ask !== undefined) required(args.ask, 'ask')
       if (!args.prompt && !args.subscribers?.length && !caller && args.scope !== 'project')
         throw new Error('At least one of prompt or subscribers is required')
-      if (args.subscribers !== undefined && !Array.isArray(args.subscribers))
-        throw new Error('subscribers must be #id or @name')
       if (args.key !== undefined && (typeof args.key !== 'string' || !args.key.trim()))
         throw new Error('key must be a non-empty string')
     }
@@ -504,6 +505,8 @@ function backend(host: ExtensionHost) {
       if (!target || !(await host.harness().conversation(target, BACKGROUND_CONTEXT)))
         throw new Error(`Unknown of: ${c.of}`)
     }
+    if (args.subscribers !== undefined && !Array.isArray(args.subscribers))
+      throw new Error('subscribers must be #id or @name')
     if (args.name !== undefined) required(args.name, 'name')
     const removesPromptRun = () => args.action !== 'create' && args.prompt === ''
     if (args.prompt !== undefined && !removesPromptRun()) required(args.prompt, 'prompt')
@@ -539,9 +542,7 @@ function backend(host: ExtensionHost) {
     if (existingKeyedCreate) return { keyed: true }
     await validate(args, caller)
     if (args.action === 'create') {
-      const subscribers = args.subscribers?.length
-        ? [...new Set(await Promise.all(args.subscribers.map(subscriber)))]
-        : undefined
+      const subscribers = args.subscribers?.length ? await resolveAll(args.subscribers) : undefined
       const prepared: Prepared = {
         ...(args.ask !== undefined ? await prepareScript(args, caller) : {}),
         ...(subscribers ? { subscribers } : {}),
@@ -555,6 +556,8 @@ function backend(host: ExtensionHost) {
     }
     if (args.action === 'events') return {}
     const prepared: Prepared = await prepareScript(args, caller)
+    if (args.action === 'update' && args.subscribers)
+      prepared.subscribers = await resolveAll(args.subscribers)
     const condition =
       args.condition ??
       (args.action === 'resume'
@@ -643,6 +646,7 @@ function backend(host: ExtensionHost) {
         if (args.prompt) a.prompt = required(args.prompt, 'prompt')
         else delete a.prompt
       }
+      if (args.action === 'update' && prepared.subscribers) a.subscribers = prepared.subscribers
       reachesSomeone(a)
       if (args.schedule !== undefined) {
         delete a.event
@@ -661,17 +665,24 @@ function backend(host: ExtensionHost) {
         delete a.schedule
         delete a.event
         const previousTarget = a.condition?.of
+        const { metric, of, above, cooldownMs, idleFor } = args.condition
         a.condition = {
           ...a.condition,
-          ...args.condition,
-          cooldownMs: args.condition.cooldownMs ?? a.condition?.cooldownMs ?? 3600000,
+          metric,
+          of,
+          above,
+          ...(idleFor === undefined ? {} : { idleFor }),
+          cooldownMs: cooldownMs ?? a.condition?.cooldownMs ?? 3600000,
           armed: a.condition?.armed ?? true,
+        }
+        const retargeted = previousTarget !== undefined && previousTarget !== a.condition.of
+        if (!a.condition.idleFor || retargeted) {
+          delete a.condition.waker
         }
         if (!a.condition.idleFor) {
           delete a.condition.idleFor
           delete a.condition.inputAt
-        } else if (previousTarget !== undefined && previousTarget !== a.condition.of)
-          a.condition.inputAt = Date.now()
+        } else if (retargeted) a.condition.inputAt = Date.now()
       }
       if (a.script) {
         if (args.ask !== undefined) a.script.ask = required(args.ask, 'ask')
@@ -701,6 +712,7 @@ function backend(host: ExtensionHost) {
     if (args.action === 'resume' && a.event) a.event.sinceEvent = await eventActivationCursor(tx)
     if (args.action === 'create' || args.action === 'resume')
       await trigger.evaluate(tx, a, prepared.target)
+    else if (args.action === 'update') await trigger.schedule(tx, a)
     a.updatedAt = Date.now()
     if (effect) await deliver(tx, a, `update:${a.updatedAt}`, 'writing', a.script!.ask)
     if (!isDeepStrictEqual(a.schedule, oldSchedule)) delete a.nextAt
@@ -832,6 +844,7 @@ export default function automations(host: ExtensionHost) {
   host.need(SubagentsApi)
   host.need(MessagesApi)
   host.need(WorkspacesApi)
+  host.want(Hold)
   host.need(ConversationsApi)
   const api = backend(host)
   host.implement(AutomationsApi, {
@@ -845,21 +858,23 @@ export default function automations(host: ExtensionHost) {
       const a = (await tx.doc(Automations)).automations[id]
       return a && json(a)
     },
+    readByKey: async (tx, key) => {
+      const keyed = Object.values((await tx.doc(Automations)).automations).find(
+        (a) => a.key === key,
+      )
+      return keyed && json(keyed)
+    },
   })
   api.trigger.install()
-  host.onOpen(async () => {
+  host.onOpen(async (opened) => {
+    opened.defer(api.close)
     await api.open()
+    opened.defer(api.trigger.close)
     await api.trigger.open()
   })
-  const close = async () => {
-    await api.trigger.close()
-    await api.close()
-  }
-  host.onRelease(close)
-  host.onClose(close)
   return defineExtension({
     name: 'automations',
-    tasks: [api.Scheduler, api.RunTask, api.Deliver],
+    tasks: [api.Scheduler, api.RunTask, api.Deliver, api.trigger.IdleWaker],
     hooks: [
       hook(GenerationTask, {
         onYield: async (answer, hookApi, ctx) => {
@@ -995,7 +1010,8 @@ function concise(value: JsonValue): string {
   if (value && typeof value === 'object' && 'enabled' in value) {
     const a = value as Automation
     const to = a.subscribers.map((s) => (typeof s === 'number' ? `#${s}` : s)).join(', ')
-    return `${a.id} ${a.name} — ${describeTrigger(a)} — ${a.enabled ? 'enabled' : 'paused'}${to ? ` → ${to}` : ''}`
+    const next = a.nextAt !== undefined ? ` — ${describeNext(a.nextAt, Date.now())}` : ''
+    return `${a.id} ${a.name} — ${describeTrigger(a)}${next} — ${a.enabled ? 'enabled' : 'paused'}${to ? ` → ${to}` : ''}`
   }
   if (value && typeof value === 'object' && typeof value.text === 'string') return value.text
   return JSON.stringify(value)

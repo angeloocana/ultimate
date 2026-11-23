@@ -1,16 +1,6 @@
-/** @jsxImportSource @solidjs/web */
 import { Inbox as InboxIcon } from '@lucide/solid'
-import type { JSX } from '@solidjs/web'
 import { createMemo, For, Show } from 'solid-js'
-import {
-  Header,
-  ProvidedValue,
-  Sidebar,
-  useProvided,
-  useNow,
-  useSurface,
-  useViewport,
-} from '@/sdk/solid'
+import { Header, Sidebar, useProvided, useNow, useSurface, useViewport } from '@/sdk/solid'
 import { localDay } from '../../lib/calendar-day.ts'
 import { Badge, LinkOverlay, SidebarRow, Zero } from './chrome.solid.tsx'
 import { SURFACE, answeredToday, sortForSurface, toRow } from './items.ts'
@@ -43,16 +33,14 @@ export function Inbox() {
   })
   const pane = () => (
     <Show
-      when={takeover() != null}
+      when={takeover()}
       fallback={
         <For each={openItem()} keyed={(entry) => entry.key}>
           {(entry) => <Reading entry={entry()} now={now()} onBack={close} phone={phone()} />}
         </For>
       }
     >
-      <Show when={typeof takeover() === 'function'} fallback={<ProvidedValue value={takeover()} />}>
-        {(takeover() as () => JSX.Element)()}
-      </Show>
+      {(render) => render()()}
     </Show>
   )
   return (

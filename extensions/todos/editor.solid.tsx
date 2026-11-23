@@ -1,4 +1,3 @@
-/** @jsxImportSource @solidjs/web */
 import { Show, createSignal } from 'solid-js'
 import { Button } from '@/components/ui/button.solid.tsx'
 import { DialogTitle } from '@/components/ui/dialog.solid.tsx'

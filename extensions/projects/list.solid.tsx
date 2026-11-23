@@ -1,4 +1,3 @@
-/** @jsxImportSource @solidjs/web */
 import { createMemo, createRoot, createSignal, onSettled, Show } from 'solid-js'
 import { keepLast, prettyName, useAction, usePageVisible } from '@/sdk/solid'
 import { deadline } from '../../lib/timers.ts'
