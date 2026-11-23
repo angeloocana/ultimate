@@ -409,6 +409,24 @@ it('stops a recurring script that prints DONE and exits 0 without waking anyone;
   expect(await done()).toHaveLength(2)
 })
 
+it('tells the watcher that a re-armed one-shot refused to watch again when it exits 0 remembering its fire', async () => {
+  // Regression: a one-shot latched its fire in $AUTOMATION_STATE, so a subscriber's re-arm exited 0 at once; the
+  // watcher got a bare "exited with code 0" failure, read it as a runner bug and escalated.
+  const { app, folder } = sharedFixture()
+  const sub = await create(app)
+  const get = async () => (await app.harness.snapshot(Automations, context))!.automations[sub.id]
+  await writeRun(
+    folder(sub.id),
+    '[ -e "$AUTOMATION_STATE/fired" ] && exit 0; touch "$AUTOMATION_STATE/fired"; echo FIRE quiet',
+  )
+  await call(app, 'resume', sub.id)
+  await until(async () => (await get()).script!.state === 'done')
+  await call(app, 'resume', sub.id)
+  await until(async () => (await get()).script!.state === 'investigating')
+  expect(await get()).toMatchObject({ fires: 1, script: { exitCode: 0, failures: 1 } })
+  expect((await get()).script!.error).toContain('resume re-arms a one-shot')
+})
+
 it("keeps a later chapter's scripts in their own folder, apart from the first chapter's same id", async () => {
   const first = await fixture()
   const legacy = first.folder('A1')

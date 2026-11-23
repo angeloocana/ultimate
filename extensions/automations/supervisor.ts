@@ -504,7 +504,12 @@ export function supervisor(
       if (cleanRecurringExit) await host.emit(tx, Done, { id, ...(said ? { text: said } : {}) })
       else if (sub.script!.state === 'done') sub.enabled = false
       else if (failed) {
-        const reason = error ?? `Process exited with code ${code}${signal ? ` (${signal})` : ''}`
+        const refusedRearm = sub.script!.once && code === 0 && sub.fires > 0
+        const reason =
+          error ??
+          (refusedRearm
+            ? 'Process exited with code 0 without FIRE, though it fired before: resume re-arms a one-shot, so run must watch again instead of remembering its earlier fire (clear that from $AUTOMATION_STATE)'
+            : `Process exited with code ${code}${signal ? ` (${signal})` : ''}`)
         if (sub.script!.failures! >= FAILURE_LIMIT)
           await escalate(tx, sub, `Failed ${sub.script!.failures} times in a row: ${reason}`)
         else {
