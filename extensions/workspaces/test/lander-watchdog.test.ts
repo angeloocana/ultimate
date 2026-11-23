@@ -111,11 +111,11 @@ it('reports the timeout when the stopped group then fails to exit', async () => 
   await vi.advanceTimersByTimeAsync(50)
   const result = await ran
   expect(result.failure).toMatch(
-    /^Timed out after 0.05 s; Error: Process group 42 did not exit\nFailed tests so far:\nFAIL {2}test\/e2e\/image-resize/,
+    /^Timed out after 50ms; Error: Process group 42 did not exit\nFailed tests so far:\nFAIL {2}test\/e2e\/image-resize/,
   )
   expect(result.timedOut).toBe(true)
   expect('cause' in result && result.cause).toBe(
-    'Timed out after 0.05 s; Error: Process group 42 did not exit: test/e2e/image-resize.test.ts > resizes',
+    'Timed out after 50ms; Error: Process group 42 did not exit: test/e2e/image-resize.test.ts > resizes',
   )
 })
 
