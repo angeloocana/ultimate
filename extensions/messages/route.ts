@@ -488,7 +488,7 @@ export function route(host: ExtensionHost) {
           await send(host, id, { to: `#${to}`, text, reply: false }, ctx, {
             requestId,
             ...options,
-            ...(options.judged
+            ...(options.report
               ? { stillReports: async (tx: Tx) => !(await concludedOrWorkUnderway(host, tx, id)) }
               : {}),
           })

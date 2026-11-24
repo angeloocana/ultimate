@@ -141,6 +141,7 @@ table once its mistake can no longer happen.
 | One polling helper in tests                                              | `ultimate/no-local-test-polling`                                    |
 | A switch over a union names every case                                   | `typescript/switch-exhaustiveness-check`                            |
 | Pi couplings are listed and marked                                       | `scripts/pi-upstream.ts`                                            |
+| A branch's answers reach its starter in order, once, never while busy    | `pnpm tla` (`scripts/tla.ts`), `verify-branch-reports` skill        |
 | No dead code, shims, slop or tests that restate the implementation       | the review team (`reviewer-simplicity`)                             |
 
 Reject slop and jargon: keep code and explanations direct, minimal, and grounded in evidence. No backward-compatibility

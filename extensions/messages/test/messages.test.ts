@@ -123,6 +123,8 @@ async function fixture(
     /** Only this conversation's calls wait at the gate. */
     conversation?: () => number
   },
+  /** Holds a route that sends a report between its decision and its send, once armed. */
+  forwardGate?: { gate: ReturnType<typeof gate>; armed: boolean; entered: boolean },
 ) {
   /** Services other extensions implement here, by API name, such as pause's `messages.gate`. */
   const provided = new Map<string, unknown>()
@@ -219,6 +221,35 @@ async function fixture(
             ctx,
           ),
       })),
+    }
+  if (forwardGate)
+    backend = {
+      ...backend,
+      tasks: backend.tasks!.map((t) => {
+        const task = t as unknown as Task<
+          JsonValue,
+          { phase: string; routes?: { options: { report?: boolean } }[] },
+          JsonValue,
+          object
+        >
+        if (task.definition.name !== 'board.route') return t
+        return {
+          definition: {
+            ...task.definition,
+            phases: {
+              ...task.definition.phases,
+              forward: async (...args: Parameters<typeof task.definition.phases.forward>) => {
+                const reports = args[0].state.checkpoint.routes?.some((r) => r.options.report)
+                if (forwardGate.armed && reports) {
+                  forwardGate.entered = true
+                  await awaitWithContext(forwardGate.gate.promise, args[2])
+                }
+                await task.definition.phases.forward(...args)
+              },
+            },
+          },
+        }
+      }),
     }
   prepared.registry.install(
     replyGate
@@ -1449,6 +1480,15 @@ async function enableBranch(f: Awaited<ReturnType<typeof fixture>>) {
     if (tool) await configure(tx, f.opened.root.id, { modelTools: { add: [tool] } })
   }, context)
 }
+/** A route of the branch waits on live work: once its generation ended, that is only the branch's previous route. */
+const routeHeldBack = async (f: Awaited<ReturnType<typeof fixture>>, id: number) =>
+  (await f.opened.harness.inspect(context)).tasks.some(
+    (t) =>
+      t.record.kind === 'board.route' &&
+      t.record.conversationId === id &&
+      t.state.kind === 'waiting' &&
+      t.state.on.length > 0,
+  )
 async function branched(f: Awaited<ReturnType<typeof fixture>>, prompt = 'Explore') {
   await enableBranch(f)
   await f.opened.root.submit(
@@ -1904,15 +1944,8 @@ it("judges and sends a branch's answers in answer order, and a report judged whi
   await say('nice')
   await until(async () => pending.length === 1)
   await say('result')
-  const waitsOnOlderRoute = async () =>
-    (await f.opened.harness.inspect(context)).tasks.some(
-      (t) =>
-        t.record.kind === 'board.route' &&
-        t.record.conversationId === b.id &&
-        t.record.state.status === 'waiting' &&
-        t.record.state.on.length === 2,
-    )
-  await until(async () => pending.length === 2 || (await waitsOnOlderRoute()))
+  await b.branch.waitForIdle(context)
+  await until(async () => pending.length === 2 || (await routeHeldBack(f, b.id)))
   expect(pending).toHaveLength(1)
   pending[0](0.1)
   await until(async () => pending.length === 2)
@@ -1935,6 +1968,74 @@ it("judges and sends a branch's answers in answer order, and a report judged whi
   expect(toStarter.filter((m) => m.text === 'Answer: late result' && m.report)).toEqual([
     expect.objectContaining({ judged: expect.objectContaining({ report: 0.9 }) }),
   ])
+})
+it('keeps answer order across a restart while an older verdict waits and a newer report is ready (f3c4c3da)', async () => {
+  // Review of f05a2cbf and 0c993799: an older verdict waited, a newer report went out, and the older answer reached
+  // the starter last. The model in test/model replays the same steps (BranchReportsWithoutPredecessor.cfg).
+  const f = await fixture()
+  const b = await branched(f)
+  let olderAsked = false
+  f.provided.set(Judge.name, {
+    report: async (state) => {
+      if (!state.final_answer.includes('older')) return 0.9
+      olderAsked = true
+      return new Promise<number>(() => {})
+    },
+  } satisfies JudgeService)
+  const say = async (content: string) =>
+    (await b.branch.submit({ type: 'input', content }, context)).wait(context)
+  const sent = async (text: string) => (await b.from()).find((m) => m.text === `Answer: ${text}`)
+  await say('older')
+  await until(async () => olderAsked)
+  await say('newer')
+  await b.branch.waitForIdle(context)
+  await until(async () => (await sent('newer')) !== undefined || (await routeHeldBack(f, b.id)))
+  await f.opened.close()
+  await f.open()
+  await until(async () => (await sent('newer')) !== undefined)
+  await b.settled()
+  const [older, newer] = [(await sent('older'))!, (await sent('newer'))!]
+  expect(older.id < newer.id).toBe(true)
+  expect([older, newer]).toEqual([
+    expect.objectContaining({
+      report: true,
+      judged: expect.objectContaining({ error: 'interrupted' }),
+    }),
+    expect.objectContaining({ report: true, judged: expect.objectContaining({ report: 0.9 }) }),
+  ])
+})
+it('sends a promoted note as a note when the branch got busy before it went out', async () => {
+  // Found by the model in test/model (BranchReportsJudgedOnlyBusyCheck.cfg): only judged reports checked at send
+  // time whether the branch was still idle, so a note promoted after a sibling's question woke a busy branch's starter.
+  const forward = { gate: gate(), armed: false, entered: false }
+  const f = await fixture(undefined, undefined, forward)
+  const b = await branched(f)
+  const toStarter = async () => (await b.from()).filter((m) => m.to === 1)
+  await b.branch.submit({ type: 'input', content: 'HOLD' }, context)
+  await until(f.holding)
+  await sendMessage(f.host, f.recipient.id, { to: `#${b.id}`, text: 'HOLD', reply: true }, context)
+  f.hold.release()
+  f.holdAgain()
+  await until(f.holding)
+  await until(async () => (await toStarter()).length === 2)
+  const note = (await toStarter())[1]
+  expect([note.text, note.report, note.judged]).toEqual(['Done', undefined, undefined])
+
+  forward.armed = true
+  f.hold.release()
+  f.holdAgain()
+  await until(() => forward.entered)
+  await b.branch.submit({ type: 'input', content: 'HOLD' }, context)
+  await until(f.holding)
+  forward.gate.release()
+  await until(async () => (await toStarter()).length === 3)
+  const promoted = (await toStarter())[2]
+  expect([promoted.text, promoted.report]).toEqual(['Done', undefined])
+
+  forward.armed = false
+  f.hold.release()
+  await b.settled()
+  expect((await toStarter()).at(-1)).toMatchObject({ report: true })
 })
 it("places a branch's one-way message to its starter as a note", async () => {
   const f = await fixture()

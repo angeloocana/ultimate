@@ -74,7 +74,8 @@ Stop and ask me whenever a step needs my password, a login or a decision.
 By default you get Pi's coding agent in a web UI: read, write, edit, bash, codemode, and browser debugging tools,
 with the conversation, model and thinking controls, login, and footer, plus every other built-in building block.
 
-Needs Node 26, pnpm and Git 2.54 or newer.
+Needs Node 26, pnpm and Git 2.54 or newer. Working on Ultimate itself also needs Java 11 or later for `pnpm tla`, the
+model check the lander runs (`brew install openjdk@21`).
 
 You log in to a model provider on first start, not before. Ultimate shares `~/.pi/agent` with
 `pi` (credentials, models, settings); personal skills and instructions go in `~/.ultimate/skills/` and

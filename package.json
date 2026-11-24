@@ -14,6 +14,7 @@
     "test": "MIMALLOC_ALLOW_THP=0 MIMALLOC_PURGE_DELAY=0 node scripts/test.ts fast",
     "test:e2e": "MIMALLOC_ALLOW_THP=0 MIMALLOC_PURGE_DELAY=0 node scripts/test.ts e2e",
     "test:affected": "MIMALLOC_ALLOW_THP=0 MIMALLOC_PURGE_DELAY=0 node scripts/test.ts affected",
+    "tla": "node scripts/tla.ts",
     "setup:machine": "node scripts/setup-machine.ts",
     "reset": "node scripts/reset.ts",
     "restore": "node scripts/restore.ts",

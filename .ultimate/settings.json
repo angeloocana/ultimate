@@ -25,6 +25,7 @@
   "lander": {
     "checks": [
       { "command": "pnpm check", "timeout": 120 },
+      { "command": "pnpm tla", "timeout": 300 },
       { "command": "pnpm test:affected", "timeout": 600 }
     ],
     "push": "origin"
