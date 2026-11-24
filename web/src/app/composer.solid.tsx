@@ -318,7 +318,8 @@ function ComposerEditor(props: {
   const uploading = () => files().some((file) => !file.path)
   const blocked = () =>
     prompt() || loading() ? undefined : blockedBy(conversation().agent, models())
-  const empty = () => !text().trim() && images().length === 0 && files().length === 0
+  const empty = () =>
+    !text().trim() && images().length === 0 && files().length === 0 && !target()?.ready?.()
   const problem = () => value().error ?? blocked()
   const inert = () => loading() || sending() || attach.reading()
 
@@ -355,7 +356,7 @@ function ComposerEditor(props: {
     )
       return
     const submitted = current.get()
-    if (redirect && submitted.images.length) {
+    if (redirect && !redirect.images && submitted.images.length) {
       setError('Images stay here: remove them to send elsewhere')
       return
     }
@@ -368,15 +369,15 @@ function ComposerEditor(props: {
     }
     let withdrawnSteerToRestoreOnFailure: typeof input | undefined
     try {
-      if (direct) {
+      const sendTarget = direct?.onSend ?? redirect?.send
+      if (sendTarget) {
         await writingAs(who, () =>
-          direct.onSend(
+          sendTarget(
             input.text,
             input.images.map(({ data, mimeType }) => ({ data, mimeType })),
           ),
         )
-      } else if (redirect) await writingAs(who, () => redirect.send(input.text))
-      else if (conversationId !== undefined) {
+      } else if (conversationId !== undefined) {
         withdrawnSteerToRestoreOnFailure =
           mode === 'steer' ? await withdrawQueuedSteer(api, conversationId, inbox()) : undefined
         if (withdrawnSteerToRestoreOnFailure)

@@ -1,5 +1,5 @@
 import { createMemo, createRoot, createSignal, onSettled, Show } from 'solid-js'
-import { keepLast, prettyName, useAction, usePageVisible } from '@/sdk/solid'
+import { ROOT, keepLast, prettyName, useAction, usePageVisible } from '@/sdk/solid'
 import { deadline } from '../../lib/timers.ts'
 import { destination, shownPort } from './links.ts'
 import { ListAction } from './refs.ts'
@@ -38,6 +38,7 @@ export function useVisibleReads(active: () => boolean = () => true) {
   const showCount = createMemo<number>((previous) => (previous ?? 0) + Number(polling()))
   const whileVisible = (ms: number) => () => (polling() ? ms : undefined)
   const projects = useAction(ListAction, null, {
+    conversation: ROOT,
     on: showCount,
     onError: keepLast,
     every: whileVisible(VISIBLE_PROJECTS_POLL_MS),

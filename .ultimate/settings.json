@@ -6,7 +6,12 @@
     "families": {
       "lead": { "model": "claude-code/claude-opus-5-5", "thinking": "high", "color": "orange" },
       "review": { "model": "claude-code/claude-opus-5-5", "thinking": "high" },
-      "fast": { "model": "claude-code/claude-opus-5-5", "thinking": "medium" }
+      "fast": { "model": "claude-code/claude-opus-5-5", "thinking": "medium" },
+      "adversarial": {
+        "model": "antigravity/gemini-4-neon-high",
+        "thinking": "high",
+        "color": "teal"
+      }
     },
     "assign": {
       "preview": "fast"
