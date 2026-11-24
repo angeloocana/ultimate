@@ -50,6 +50,11 @@ const coreSwapLock = (ultimateRoot: string) =>
   join(ultimateRoot, 'node_modules/.ultimate-core-swap.lock')
 const coreUpdatePending = (reason: string) =>
   `Core update pending: this process keeps serving the code it loaded until it runs the core on disk. ${reason}`
+class CoreChanged extends Error {
+  constructor() {
+    super(coreUpdatePending('The core on disk changed during this reload.'))
+  }
+}
 const coreInput = (path: string) =>
   corePath(path) || path === 'package.json' || path === 'pnpm-lock.yaml'
 
@@ -309,11 +314,22 @@ export async function loadExtensions(
   }
   let lastReportedPreparationFailure: string | undefined
   let coreAttempted: string | undefined
-  let restartRun: { automatic: boolean; done: Promise<string> } | undefined
-  async function restart(approved: (generation: number) => Promise<void>, automatic = false) {
-    if (restartRun && !automatic && restartRun.automatic) await restartRun.done
+  type Approval = (generation: number) => Promise<void>
+  let restartRun: { automatic: boolean; approvals: Approval[]; done: Promise<string> } | undefined
+  async function restart(approved: Approval, automatic = false) {
+    if (restartRun?.automatic && !automatic) {
+      restartRun.approvals.push(approved)
+      return restartRun.done
+    }
     if (restartRun) return 'A core swap is already in progress.'
-    const run = { automatic, done: restartInTurn(approved) }
+    const approvals = [approved]
+    const run = {
+      automatic,
+      approvals,
+      done: restartInTurn(async (generation) => {
+        for (const approval of approvals) await approval(generation)
+      }),
+    }
     restartRun = run
     try {
       return await run.done
@@ -344,7 +360,7 @@ export async function loadExtensions(
   function checkCore() {
     const onDisk = coreHash(host.ultimateRoot)
     if (onDisk === host.builds.bootCore) return true
-    if (open && !restartRun && onDisk !== coreAttempted) {
+    if (serving && !restartRun && onDisk !== coreAttempted) {
       coreAttempted = onDisk
       inProcess(
         'a failed swap leaves this process serving; the next core change on disk tries again',
@@ -367,6 +383,7 @@ export async function loadExtensions(
     return true
   }
   let open = false
+  let serving = false
   const cleanups = new Set<() => Promise<void>>()
   const resources = new Map<string, unknown>()
   async function invoke(
@@ -635,10 +652,7 @@ export async function loadExtensions(
         const facetHost = scope(name)
         try {
           const module = await vite.ssrLoadModule(join(target, 'server.ts'))
-          if (!checkCore()) {
-            await dispose(facetHost)
-            return
-          }
+          if (!checkCore()) throw new CoreChanged()
           const extension: Extension =
             typeof module.default === 'function' ? await module.default(facetHost) : module.default
           if (!extension || extension.name !== name)
@@ -681,6 +695,7 @@ export async function loadExtensions(
             )
             .map((entry) => `${entry.tool.name} is already provided by ${entry.extension.name}`)
           if (sameLayerToolConflicts.length) throw new Error(sameLayerToolConflicts.join('; '))
+          if (!checkCore()) throw new CoreChanged()
           host.registry.install(trace.tools(extension))
           const previousHost = facetHosts.get(name)
           facetHosts.set(name, facetHost)
@@ -710,6 +725,7 @@ export async function loadExtensions(
           }
         } catch (error) {
           await dispose(facetHost)
+          if (error instanceof CoreChanged) throw error
           record.server = {
             ...(previous?.server ?? { tools: [], sections: [], hooks: 0, docs: [] }),
             error: String(error),
@@ -909,9 +925,6 @@ export async function loadExtensions(
     async opened() {
       trace.open()
       open = true
-      const rolledBack = restartRun !== undefined
-      restartRun = undefined
-      if (!checkCore() && rolledBack) notice(coreUpdatePending('The new core did not activate.'))
       for (const [name, facetHost] of facetHosts)
         for (const [message, recorded] of facetNotices.get(facetHost) ?? [])
           if (!recorded.recordedInEventLog) {
@@ -920,7 +933,16 @@ export async function loadExtensions(
           }
       await Promise.all([...openers].map(runOpener))
     },
+    serving() {
+      serving = true
+      if (restartRun) {
+        restartRun = undefined
+        notice(coreUpdatePending('The new core did not activate.'))
+      }
+      checkCore()
+    },
     async released() {
+      serving = false
       open = false
       await Promise.all([...openRuns.keys()].map(endOpen))
       trace.close()
