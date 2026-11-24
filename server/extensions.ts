@@ -23,7 +23,7 @@ import { watchRoots } from './watch-roots.ts'
 import { actionExec } from './actions.ts'
 import type { ExtensionAction } from './actions.ts'
 import type { JsonValue } from '@earendil-works/chord/json'
-import { join, resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import type { ViteDevServer } from 'vite-plus'
 import type { ConversationSummary, ExtensionInfo, SystemInfo } from '../shared/protocol.ts'
 import type { PreparedHost } from './harness.ts'
@@ -43,12 +43,15 @@ import { ChangedEvent } from '../shared/events.ts'
 import type { Device, UiSource } from '../shared/events.ts'
 import { inProcess, isMissing, meansNone } from '../lib/errors.ts'
 import { acquireLock } from '../lib/lock.ts'
+import { corePath } from '../lib/layers.ts'
 import { coreHash } from './build.ts'
 
 const coreSwapLock = (ultimateRoot: string) =>
   join(ultimateRoot, 'node_modules/.ultimate-core-swap.lock')
-const coreUpdatePending = (error: string) =>
-  `Core update pending: the core on disk did not start, so this process keeps serving the code it loaded. ${error}`
+const coreUpdatePending = (reason: string) =>
+  `Core update pending: this process keeps serving the code it loaded until it runs the core on disk. ${reason}`
+const coreInput = (path: string) =>
+  corePath(path) || path === 'package.json' || path === 'pnpm-lock.yaml'
 
 export type ExtensionHost = Pick<
   PreparedHost,
@@ -77,7 +80,6 @@ export type ExtensionHost = Pick<
   resource<T>(key: string, create: () => T): T
   onOpen(callback: Opener): void
   onClose(cleanup: () => Promise<void>): void
-  onLoadError(callback: (name: string, error: string) => void): void
   onBeforeLoad(callback: () => Promise<void>): void
   harness(): Harness
   system(): SystemInfo
@@ -228,10 +230,6 @@ export async function loadExtensions(
         if (sharedResource) extensionHost.onClose(cleanup)
         else facetCleanups.get(facetHost)!.add(cleanup)
       },
-      onLoadError: (callback) => {
-        loadErrorListeners.add(callback)
-        stops.add(() => loadErrorListeners.delete(callback))
-      },
       onBeforeLoad: (callback) => {
         beforeLoad.add(callback)
         stops.add(() => beforeLoad.delete(callback))
@@ -298,7 +296,6 @@ export async function loadExtensions(
     })()
     await current.ending
   }
-  const loadErrorListeners = new Set<(name: string, error: string) => void>()
   const beforeLoad = new Set<() => Promise<void>>()
   async function preparationError() {
     let failed: string | undefined
@@ -311,11 +308,23 @@ export async function loadExtensions(
     return failed
   }
   let lastReportedPreparationFailure: string | undefined
-  let coreOnDiskSwappedTo: string | undefined
-  let restarting = false
-  let booted = false
+  let coreAttempted: string | undefined
+  let restartRun: { automatic: boolean; done: Promise<string> } | undefined
+  async function restart(approved: (generation: number) => Promise<void>, automatic = false) {
+    if (restartRun && !automatic && restartRun.automatic) await restartRun.done
+    if (restartRun) return 'A core swap is already in progress.'
+    const run = { automatic, done: restartInTurn(approved) }
+    restartRun = run
+    try {
+      return await run.done
+    } finally {
+      if (restartRun === run) restartRun = undefined
+      checkCore()
+    }
+  }
   async function restartInTurn(approved: (generation: number) => Promise<void>) {
-    restarting = true
+    const failed = await preparationError()
+    if (failed) return failed
     const lock = await acquireLock(
       coreSwapLock(host.ultimateRoot),
       { pid: process.pid },
@@ -329,30 +338,29 @@ export async function loadExtensions(
         await approved(generation)
       })
     } finally {
-      restarting = false
       await released()
     }
   }
+  function checkCore() {
+    const onDisk = coreHash(host.ultimateRoot)
+    if (onDisk === host.builds.bootCore) return true
+    if (open && !restartRun && onDisk !== coreAttempted) {
+      coreAttempted = onDisk
+      inProcess(
+        'a failed swap leaves this process serving; the next core change on disk tries again',
+        restart(async () => {}, true).then(
+          (error) => notice(coreUpdatePending(error)),
+          (error: unknown) => notice(coreUpdatePending(String(error))),
+        ),
+      )
+    }
+    return false
+  }
   async function prepareLoad() {
     const failed = await preparationError()
-    const reportFailure = failed !== lastReportedPreparationFailure
+    if (!checkCore()) return false
+    if (failed && failed !== lastReportedPreparationFailure) notice(`Loading as it is: ${failed}`)
     lastReportedPreparationFailure = failed
-    const onDisk = coreHash(host.ultimateRoot)
-    if (onDisk !== host.builds.bootCore) {
-      if (failed && reportFailure) notice(coreUpdatePending(failed))
-      if (!failed && !restarting && onDisk !== coreOnDiskSwappedTo) {
-        coreOnDiskSwappedTo = onDisk
-        inProcess(
-          'a failed swap leaves this process serving; the next core change on disk tries again',
-          restartInTurn(async () => {}).then(
-            (error) => notice(coreUpdatePending(error)),
-            (error: unknown) => notice(coreUpdatePending(String(error))),
-          ),
-        )
-      }
-      return false
-    }
-    if (failed && reportFailure) notice(`Loading as it is: ${failed}`)
     const modules = join(host.ultimateRoot, 'node_modules')
     for (const environment of Object.values(vite.environments))
       await environment.pluginContainer.watchChange(modules, { event: 'create' })
@@ -440,7 +448,6 @@ export async function loadExtensions(
       if (open) inProcess('the onOpen callback belongs to this extension host', runOpener(callback))
     },
     onClose: (cleanup) => cleanups.add(cleanup),
-    onLoadError: (callback) => loadErrorListeners.add(callback),
     onBeforeLoad: (callback) => beforeLoad.add(callback),
     ultimateRoot: host.ultimateRoot,
     projectRoot: host.projectRoot,
@@ -455,7 +462,7 @@ export async function loadExtensions(
       host.scanSubmissions(query, limit, cursor, caller),
     models: () => host.models(),
     skills: (cwd) => host.skills(cwd),
-    restart: async (approved) => (await preparationError()) ?? restartInTurn(approved),
+    restart: (approved: (generation: number) => Promise<void>) => restart(approved),
     get chapter() {
       return host.chapter
     },
@@ -502,7 +509,11 @@ export async function loadExtensions(
     reloadExtensions: async () => {
       const work = chain
         .then(() => !closed && prepareLoad())
-        .then((current) => (current ? reloadSettings() : undefined))
+        .then(async (current) => {
+          if (closed) return
+          if (!current) throw new Error(coreUpdatePending('Settings apply after the restart.'))
+          await reloadSettings()
+        })
       const recoveredQueueForLaterReloads = work.catch(() => changed())
       chain = recoveredQueueForLaterReloads
       await work
@@ -624,6 +635,10 @@ export async function loadExtensions(
         const facetHost = scope(name)
         try {
           const module = await vite.ssrLoadModule(join(target, 'server.ts'))
+          if (!checkCore()) {
+            await dispose(facetHost)
+            return
+          }
           const extension: Extension =
             typeof module.default === 'function' ? await module.default(facetHost) : module.default
           if (!extension || extension.name !== name)
@@ -666,11 +681,6 @@ export async function loadExtensions(
             )
             .map((entry) => `${entry.tool.name} is already provided by ${entry.extension.name}`)
           if (sameLayerToolConflicts.length) throw new Error(sameLayerToolConflicts.join('; '))
-          if (booted && coreHash(host.ultimateRoot) !== host.builds.bootCore) {
-            await dispose(facetHost)
-            enqueue(async () => {})
-            return
-          }
           host.registry.install(trace.tools(extension))
           const previousHost = facetHosts.get(name)
           facetHosts.set(name, facetHost)
@@ -704,7 +714,6 @@ export async function loadExtensions(
             ...(previous?.server ?? { tools: [], sections: [], hooks: 0, docs: [] }),
             error: String(error),
           }
-          for (const listener of loadErrorListeners) listener(name, String(error))
         }
       } else if (!enabled || !record.facets.server) {
         await unload(name)
@@ -755,7 +764,6 @@ export async function loadExtensions(
     )
   }
   await reload()
-  booted = true
   let reloadAllAfterGraphReplacement = false
   const onChange = (file: string) => {
     if (
@@ -768,6 +776,10 @@ export async function loadExtensions(
       return
     if (settingsFiles.includes(resolve(file))) {
       enqueue(reloadSettings)
+      return
+    }
+    if (coreInput(relative(host.ultimateRoot, file))) {
+      enqueue(async () => {})
       return
     }
     const directory = directories.find((root) => file.startsWith(root + '/'))
@@ -891,12 +903,15 @@ export async function loadExtensions(
     doc: findDoc,
     catalogue: () => apis.catalogue(),
     trace: trace.reader,
-    restartRefusal: preparationError,
+    restart: (approved: (generation: number) => Promise<void>) => restart(approved),
     prepareLoad,
+    coreCurrent: checkCore,
     async opened() {
       trace.open()
       open = true
-      restarting = false
+      const rolledBack = restartRun !== undefined
+      restartRun = undefined
+      if (!checkCore() && rolledBack) notice(coreUpdatePending('The new core did not activate.'))
       for (const [name, facetHost] of facetHosts)
         for (const [message, recorded] of facetNotices.get(facetHost) ?? [])
           if (!recorded.recordedInEventLog) {
