@@ -152,3 +152,56 @@ it('rejects local polling function declarations in favor of the shared real-dead
     rule.FunctionDeclaration({ type: 'FunctionDeclaration', id: { type: 'Identifier', name } })
   expect(f.reports).toHaveLength(2)
 })
+
+it('rejects chained container assignments, as in compaction admission and the pre-8e50b31 lander, and accepts two statements', async () => {
+  const { parseSync } = await import('vite-plus')
+  const run = (source: string) => {
+    const f = context()
+    const rule = ultimate.rules['no-chained-container-assign'].create(f.context)
+    const visit = (node: unknown, parent: unknown = null): void => {
+      if (Array.isArray(node)) {
+        for (const item of node) visit(item, parent)
+        return
+      }
+      if (!node || typeof node !== 'object') return
+      const typed = node as { type?: string; parent?: unknown }
+      if (typed.type) typed.parent = parent
+      if (typed.type === 'AssignmentExpression') rule.AssignmentExpression(typed as never)
+      for (const [key, value] of Object.entries(node))
+        if (key !== 'parent') visit(value, typed.type ? typed : parent)
+    }
+    visit(parseSync('server.ts', source).program)
+    return f.reports
+  }
+  // Shipped in lib/compaction.ts:23 — dropped every admitted compaction from LiveDoc.compactions.
+  const compaction = `async function admit(tx, id, created) {
+    ;((await tx.doc(LiveDoc, id)).compactions ??= []).push({ taskId: created })
+  }`
+  // Hit in extensions/workspaces/lander.ts before 8e50b31 — lost the first check outcome.
+  const lander = `function record(saved, key, value) {
+    ;(saved.checks ??= {})[key] = value
+  }`
+  expect(run(compaction)).toEqual([
+    expect.stringMatching(/draft proxy keeps a copy.*two statements/),
+  ])
+  expect(run(lander)).toEqual([expect.stringMatching(/draft proxy keeps a copy.*two statements/)])
+  expect(run(`;(saved.checks ||= {})[key] = value`)).toHaveLength(1)
+  expect(run(`;(saved.checks = {})[key] = value`)).toHaveLength(1)
+  expect(run(`const c = (saved.checks ??= {}); c[key] = value`)).toHaveLength(1)
+  expect(run(`Object.assign((saved.checks ??= {}), { a: 1 })`)).toHaveLength(1)
+  expect(run(`const fn = (doc) => (doc.items ??= []).push(1)`)).toHaveLength(1)
+
+  expect(
+    run(`
+      const live = await tx.doc(LiveDoc, id)
+      live.compactions ??= []
+      live.compactions.push({ taskId: created })
+      saved.checks ??= {}
+      saved.checks[key] = value
+      saved.checks = { ...saved.checks, [key]: value }
+      early[id] ??= {}
+      const shared = ((globalThis as Record<symbol, unknown>)[Symbol.for('k')] ??= {})
+      const cache = (x) => (disk.last = { x })
+    `),
+  ).toEqual([])
+})

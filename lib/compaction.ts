@@ -20,7 +20,9 @@ export async function admitCompaction(tx: Tx, id: ConversationId, instructions?:
     { reason: 'manual', instructions },
     { ownership: { kind: 'conversation' }, conversationId: id, background: false },
   )
-  ;((await tx.doc(LiveDoc, id)).compactions ??= []).push({
+  const live = await tx.doc(LiveDoc, id)
+  live.compactions ??= []
+  live.compactions.push({
     taskId: created,
     trigger: 'manual',
     blocking: false,

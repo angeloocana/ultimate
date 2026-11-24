@@ -38,6 +38,8 @@ interface Node {
   declarations?: Node[]
   expression?: Node
   operator?: string
+  left?: Node
+  right?: Node
   init?: Node | null
   typeArguments?: Node | null
   params?: Node[]
@@ -1026,6 +1028,63 @@ export default {
                 node,
                 message: `A name tells the reader who owns it. Events of extensions/${own} are named '${own}.<event>'.`,
               })
+          },
+        }
+      },
+    },
+    'no-chained-container-assign': {
+      meta: { schema: [] },
+      create(context: Context) {
+        const unwrap = (node: Node | null | undefined): Node | undefined => {
+          let current = node ?? undefined
+          while (
+            current &&
+            (current.type === 'ParenthesizedExpression' ||
+              current.type === 'TSAsExpression' ||
+              current.type === 'TSSatisfiesExpression' ||
+              current.type === 'TSNonNullExpression' ||
+              current.type === 'ChainExpression')
+          )
+            current = current.expression
+          return current
+        }
+        const isGlobalThisMember = (node: Node): boolean => {
+          let target = unwrap(node.object)
+          while (target?.type === 'MemberExpression') target = unwrap(target.object)
+          return target?.type === 'Identifier' && target.name === 'globalThis'
+        }
+        const isContainer = (node: Node | undefined) => {
+          const inner = unwrap(node)
+          return inner?.type === 'ObjectExpression' || inner?.type === 'ArrayExpression'
+        }
+        const isDiscarded = (node: Node) => {
+          let parent = node.parent
+          while (
+            parent &&
+            (parent.type === 'ParenthesizedExpression' ||
+              parent.type === 'TSAsExpression' ||
+              parent.type === 'TSSatisfiesExpression' ||
+              parent.type === 'TSNonNullExpression')
+          )
+            parent = parent.parent
+          return (
+            parent?.type === 'ExpressionStatement' ||
+            parent?.type === 'ForStatement' ||
+            parent?.type === 'ArrowFunctionExpression'
+          )
+        }
+        return {
+          AssignmentExpression(node: Node) {
+            if (node.operator !== '??=' && node.operator !== '||=' && node.operator !== '=') return
+            const left = unwrap(node.left)
+            if (left?.type !== 'MemberExpression' || isGlobalThisMember(left)) return
+            if (!isContainer(node.right)) return
+            if (isDiscarded(node)) return
+            context.report({
+              node,
+              message:
+                "Don't use the result of assigning an object or array to a property: Pi Durable's draft proxy keeps a copy of the assigned value, so writes through the assignment's result go nowhere. Split it into two statements (`obj.x ??= {}; obj.x[k] = v` or `obj.xs ??= []; obj.xs.push(v)`), or assign the whole value at once.",
+            })
           },
         }
       },

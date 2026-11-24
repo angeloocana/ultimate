@@ -81,6 +81,11 @@ export default defineConfig({
         rules: { 'ultimate/replay-safe-by-name': 'error' },
       },
       {
+        files: ['server/**', 'lib/**', 'shared/**', 'extensions/**', '.ultimate/extensions/**'],
+        excludeFiles: ['test/**', 'extensions/*/test/**', '.ultimate/extensions/*/test/**'],
+        rules: { 'ultimate/no-chained-container-assign': 'error' },
+      },
+      {
         files: ['server/**', 'lib/**', 'shared/**', 'extensions/**/*.ts'],
         excludeFiles: [
           'test/**',
