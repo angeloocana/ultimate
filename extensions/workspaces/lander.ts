@@ -160,24 +160,20 @@ export async function runLanderCheck(
   let output = ''
   let partial = ''
   const failed = new Set<string>()
-  let stopped: string | undefined
+  let stoppedBy: WatchdogStop | undefined
   const watchdog = new AbortController()
   const signal = AbortSignal.any([
     watchdog.signal,
     ...(context.abortSignal ? [context.abortSignal] : []),
   ])
-  const stop = (reason: string) => {
+  const stop = (reason: WatchdogStop) => {
     if (signal.aborted) return
-    stopped = reason
+    stoppedBy = reason
     watchdog.abort()
   }
-  const stalled = () =>
-    stop(`Stalled: no output for ${formatDuration(limits.stall * 1000)}, stopped`)
-  const stallDeadline = debounce(limits.stall * 1000, stalled)
+  const stallDeadline = debounce(limits.stall * 1000, () => stop('stall'))
   stallDeadline()
-  const cancelTotal = deadline(limits.total * 1000, () =>
-    stop(`Timed out after ${formatDuration(limits.total * 1000)}`),
-  )
+  const cancelTotal = deadline(limits.total * 1000, () => stop('total'))
   const report = (reason: string, heading: string) => {
     const tests = [...failed].slice(-20)
     const failedFiles = [...failed]
@@ -186,6 +182,20 @@ export async function runLanderCheck(
     return {
       failure: [reason, ...(tests.length ? [heading, ...tests] : []), output].join('\n').trim(),
       cause: [reason, ...failedFiles.slice(0, 5)].join(': '),
+    }
+  }
+  const reportStoppedCheck = (reason: WatchdogStop, cleanupFailure?: string) => {
+    const duration = formatDuration(limits[reason] * 1000)
+    const headline =
+      reason === 'stall'
+        ? `Stalled: no output for ${duration}, stopped`
+        : `Timed out after ${duration}`
+    return {
+      ...report(
+        cleanupFailure ? `${headline}; ${cleanupFailure}` : headline,
+        'Failed tests so far:',
+      ),
+      stoppedBy: reason,
     }
   }
   const onOutput = (text: string) => {
@@ -211,12 +221,11 @@ export async function runLanderCheck(
       })
     } catch (error) {
       context.abortSignal?.throwIfAborted()
-      if (stopped)
-        return { ...report(`${stopped}; ${String(error)}`, 'Failed tests so far:'), timedOut: true }
+      if (stoppedBy) return reportStoppedCheck(stoppedBy, String(error))
       return { failure: `${output}\n${String(error)}`.trim(), cause: String(error) }
     }
     context.abortSignal?.throwIfAborted()
-    if (stopped) return { ...report(stopped, 'Failed tests so far:'), timedOut: true }
+    if (stoppedBy) return reportStoppedCheck(stoppedBy)
     if (exit.outOfMemory) return report(`Out of memory: exit ${exit.code}`, 'Failed tests so far:')
     if (exit.code !== 0) return report(`exit ${exit.code}`, 'Failed tests:')
     const last = lines(stripVTControlCharacters(output)).findLast((line) => line.trim())
@@ -230,9 +239,11 @@ export async function runLanderCheck(
   }
 }
 
+type WatchdogStop = keyof CheckLimits
+
 type CheckRun =
-  | { failure?: undefined; summary?: string; timedOut?: undefined }
-  | { failure: string; cause: string; summary?: undefined; timedOut?: boolean }
+  | { failure?: undefined; summary?: string; stoppedBy?: undefined }
+  | { failure: string; cause: string; summary?: undefined; stoppedBy?: WatchdogStop }
 
 function createTempBeforeWatchdog(temp: string) {
   mkdirSync(temp, { recursive: true })
@@ -413,7 +424,7 @@ export function createLander(
             runs?: string
             result?: LanderEntry['check']
             output?: string
-            ran?: { ms: number; timedOut?: boolean }
+            ran?: { ms: number; stoppedBy?: WatchdogStop }
           } = {},
         ) =>
           runtime.commit(async (tx) => {
@@ -431,7 +442,7 @@ export function createLander(
               await host.emit(tx, CheckRan, {
                 submission: id,
                 command: result.command,
-                result: ran.timedOut ? 'timeout' : result.result,
+                result: ran.stoppedBy ? 'timeout' : result.result,
                 ms: Math.round(ran.ms),
               })
           }, context)
@@ -700,7 +711,7 @@ export function createLander(
                       ...(ran.summary ? { summary: ran.summary } : {}),
                     },
                     output: ran.failure,
-                    ran: { ms, timedOut: ran.timedOut },
+                    ran: { ms, stoppedBy: ran.stoppedBy },
                   })
                   if (ran.failure !== undefined)
                     await runtime.memo(causeMemoKey, ran.cause, context)
@@ -715,7 +726,7 @@ export function createLander(
                   await step(`rerunning: ${command}`, { runs: command })
                   const began = performance.now()
                   const ran = await run(command, member)
-                  const timing = { ms: performance.now() - began, timedOut: ran.timedOut }
+                  const timing = { ms: performance.now() - began, stoppedBy: ran.stoppedBy }
                   if (ran.failure === undefined)
                     await step(`checked: ${command}`, {
                       result: {
@@ -730,7 +741,7 @@ export function createLander(
                       await host.emit(tx, CheckRan, {
                         submission: id,
                         command,
-                        result: ran.timedOut ? 'timeout' : 'failed',
+                        result: ran.stoppedBy ? 'timeout' : 'failed',
                         ms: Math.round(timing.ms),
                       })
                     }, context)
