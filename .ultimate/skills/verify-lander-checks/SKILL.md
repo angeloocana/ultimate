@@ -28,7 +28,9 @@ The model is `extensions/workspaces/test/model/LanderChecks.tla`. Each action is
 | `Restart`              | the host closes: the run in memory is lost, commits stay                                                    |
 | `Log`, `Cause`, `Memo` | the older modes only: separate log commit, `:cause` memo and first-run or `:rerun` memo                     |
 
-The flaky note is `Landed.flaky`, built from `outcome.cause`. A landing in flight when this code first ran reads its
+The flaky note is `Landed.flaky`, built from `outcome.cause`. Phase `next` clears `QueueEntry.checks` when a lander
+task starts a submission, so a replacement task (after an abort) checks its own merge; a restart of the same task
+resumes in `land` and keeps them. The model covers the restart, not the replacement. A landing in flight when this code first ran reads its
 older memos once (`outcomeMemoizedBeforeUpgrade`); the model does not cover that one-time path.
 
 **Last checked:** the commit that adds this skill, on top of `9d04104c`

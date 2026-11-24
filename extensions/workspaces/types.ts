@@ -39,7 +39,7 @@ type AttemptAndCheckPosition = string
 type FirstFailureCause = string
 export type CheckOutcome =
   | { first: 'passed' }
-  | { first: 'failed'; cause: FirstFailureCause; rerun?: { failure?: OutputTail } }
+  | { first: 'failed'; cause?: FirstFailureCause; rerun?: { failure?: OutputTail } }
 export type Landed = {
   sha: string
   base: TargetTipBeforeLanding

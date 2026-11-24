@@ -408,6 +408,7 @@ export function createLander(
             return { status: 'terminal', outcome: { status: 'completed', result: null } }
           }
           entry.state = 'landing'
+          delete entry.checks
           await log(tx, runtime.conversationId, entry, { step: 'started' })
           return { status: 'running', checkpoint: { phase: 'land', id: entry.id, attempt: 1 } }
         }, context),
@@ -423,12 +424,12 @@ export function createLander(
         const outcomeMemoizedBeforeUpgrade = async (
           memo: string,
         ): Promise<CheckOutcome | undefined> => {
-          if ((await runtime.memo<'passed' | 'failed'>(memo, context)) === 'passed')
-            return { first: 'passed' }
+          const first = await runtime.memo<'passed' | 'failed'>(memo, context)
+          if (first === 'passed') return { first }
           const cause = await runtime.memo<string>(`${memo}:cause`, context)
-          if (cause === undefined) return undefined
+          if (!first && cause === undefined) return undefined
           const rerun = await runtime.memo<{ failure?: string }>(`${memo}:rerun`, context)
-          return { first: 'failed', cause, ...(rerun ? { rerun } : {}) }
+          return { first: 'failed', ...(cause ? { cause } : {}), ...(rerun ? { rerun } : {}) }
         }
         const step = (
           text: string,
@@ -740,6 +741,7 @@ export function createLander(
                 const { cause } = outcome
                 let { rerun } = outcome
                 if (!rerun) {
+                  const failedFirst = outcome
                   await step(`rerunning: ${command}`, { runs: command })
                   const began = performance.now()
                   const ran = await run(command, member)
@@ -747,8 +749,7 @@ export function createLander(
                   const recorded = {
                     key,
                     value: {
-                      first: 'failed' as const,
-                      cause,
+                      ...failedFirst,
                       rerun: ran.failure === undefined ? {} : { failure: ran.failure },
                     },
                   }
@@ -777,7 +778,7 @@ export function createLander(
                   rerun = recorded.value.rerun
                 }
                 if (rerun.failure !== undefined) return { failure: rerun.failure }
-                return { flaky: `${command} · ${cause}` }
+                return { flaky: cause ? `${command} · ${cause}` : command }
               }
               const settledCheckGroup = await Promise.allSettled(
                 commands.map(runCheckWithOneDurableRerun),
