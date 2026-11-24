@@ -1716,11 +1716,22 @@ it.concurrent('resumes checks after a restart without rerunning passed ones and 
       ],
     },
   })
+  // c1685d08: the host closes right after the first run's failure is logged, before any later write of the lander.
+  const emit = f.host.emit.bind(f.host)
+  let closedAfterFailure: Promise<void> | undefined
+  f.host.emit = async (tx, event, data) => {
+    const emitted = await emit(tx, event, data)
+    if (event.name === CheckRan.name && (data as { result: string }).result === 'failed')
+      closedAfterFailure ??= f.reopen()
+    return emitted
+  }
   const id = await f.create()
   await f.service.ready(id, context)
   await commit((await f.service.get(id, context))!.path)
   await f.service.submit(id, 'None', context)
   const runs = () => readFile(log, 'utf8').catch(() => '')
+  await until(async () => closedAfterFailure !== undefined)
+  await closedAfterFailure
   await until(async () => (await runs()) === 'first\nsecond\nsecond\n')
   const merged = await git(
     join(f.home, 'lander', (await readdir(join(f.home, 'lander')))[0]),
@@ -1858,11 +1869,10 @@ it.concurrent('resumes a group after a restart without a third run of its twice-
   const head = await git(f.projectRoot, 'rev-parse', 'HEAD')
   const { id: submission } = await f.service.submit(id, 'None', context)
   const index = () => f.opened.harness.snapshot(Workspaces, ROOT_CONVERSATION_ID, context)
-  const task = Object.values((await index())!.landers)[0]
   // The failing member's rerun outcome is stored while its sibling still runs.
   await until(async () => {
-    const record = await f.opened.harness.commit((tx) => tx.task(task), context)
-    return record?.memos?.[`check:${submission}:1:0.0:rerun`] !== undefined
+    const outcome = (await index())!.queue[0]?.checks?.['1:0.0']
+    return outcome?.first === 'failed' && outcome.rerun !== undefined
   })
   await held.started()
   await f.reopen()

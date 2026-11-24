@@ -25,7 +25,14 @@ import type { ExtensionHost } from '../../server/extensions.ts'
 import { CheckRan, SubmissionFailed, SubmissionLanded } from './api.ts'
 import { setup } from './setup.ts'
 import { addCheckout, treePath } from './tree.ts'
-import type { Landed, LanderEntry, LanderOutcome, QueueEntry, WorkspaceIndex } from './types.ts'
+import type {
+  CheckOutcome,
+  Landed,
+  LanderEntry,
+  LanderOutcome,
+  QueueEntry,
+  WorkspaceIndex,
+} from './types.ts'
 import { LanderLog } from './entries.ts'
 import { LanderReportEntry } from './refs.ts'
 
@@ -413,6 +420,16 @@ export function createLander(
           (await runtime.snapshot(Workspaces, ROOT_CONVERSATION_ID, context))!.queue.find(
             (item) => item.id === id,
           )?.landed
+        const outcomeMemoizedBeforeUpgrade = async (
+          memo: string,
+        ): Promise<CheckOutcome | undefined> => {
+          if ((await runtime.memo<'passed' | 'failed'>(memo, context)) === 'passed')
+            return { first: 'passed' }
+          const cause = await runtime.memo<string>(`${memo}:cause`, context)
+          if (cause === undefined) return undefined
+          const rerun = await runtime.memo<{ failure?: string }>(`${memo}:rerun`, context)
+          return { first: 'failed', cause, ...(rerun ? { rerun } : {}) }
+        }
         const step = (
           text: string,
           {
@@ -420,17 +437,20 @@ export function createLander(
             result,
             output,
             ran,
+            outcome,
           }: {
             runs?: string
             result?: LanderEntry['check']
             output?: string
             ran?: { ms: number; stoppedBy?: WatchdogStop }
+            outcome?: { key: string; value: CheckOutcome }
           } = {},
         ) =>
           runtime.commit(async (tx) => {
             const saved = (await tx.doc(Workspaces, ROOT_CONVERSATION_ID)).queue.find(
               (item) => item.id === id,
             )!
+            if (outcome) saved.checks = { ...saved.checks, [outcome.key]: outcome.value }
             saved.step = text
             await log(tx, runtime.conversationId, saved, {
               step: text,
@@ -692,41 +712,46 @@ export function createLander(
                   base,
                 )
               const runCheckWithOneDurableRerun = async (command: string, member: number) => {
-                const attemptMemoKey = `check:${id}:${attempt}:${Array.isArray(group) ? `${position}.${member}` : position}`
-                const causeMemoKey = `${attemptMemoKey}:cause`
-                let memoizedFirstRun =
-                  (await runtime.memo<'passed' | 'failed'>(attemptMemoKey, context)) ??
-                  ((await runtime.memo<string>(causeMemoKey, context)) ? 'failed' : undefined)
-                if (!memoizedFirstRun) {
+                const key = `${attempt}:${Array.isArray(group) ? `${position}.${member}` : position}`
+                let outcome =
+                  (await runtime.snapshot(Workspaces, ROOT_CONVERSATION_ID, context))!.queue.find(
+                    (item) => item.id === id,
+                  )!.checks?.[key] ?? (await outcomeMemoizedBeforeUpgrade(`check:${id}:${key}`))
+                if (!outcome) {
                   await step(`checking: ${command}`, { runs: command })
                   const began = performance.now()
                   const ran = await run(command, member)
-                  const ms = performance.now() - began
-                  const unmemoizedResult = ran.failure === undefined ? 'passed' : 'failed'
-                  const logAttemptBeforeMemo = step
-                  await logAttemptBeforeMemo(`checked: ${command}`, {
+                  outcome =
+                    ran.failure === undefined
+                      ? { first: 'passed' }
+                      : { first: 'failed', cause: ran.cause }
+                  await step(`checked: ${command}`, {
                     result: {
                       command,
-                      result: unmemoizedResult,
+                      result: outcome.first,
                       ...(ran.summary ? { summary: ran.summary } : {}),
                     },
                     output: ran.failure,
-                    ran: { ms, stoppedBy: ran.stoppedBy },
+                    ran: { ms: performance.now() - began, stoppedBy: ran.stoppedBy },
+                    outcome: { key, value: outcome },
                   })
-                  if (ran.failure !== undefined)
-                    await runtime.memo(causeMemoKey, ran.cause, context)
-                  memoizedFirstRun = await runtime.memo(attemptMemoKey, unmemoizedResult, context)
                 }
-                if (memoizedFirstRun === 'passed') return {}
-                let rerun = await runtime.memo<{ failure?: string }>(
-                  `${attemptMemoKey}:rerun`,
-                  context,
-                )
+                if (outcome.first === 'passed') return {}
+                const { cause } = outcome
+                let { rerun } = outcome
                 if (!rerun) {
                   await step(`rerunning: ${command}`, { runs: command })
                   const began = performance.now()
                   const ran = await run(command, member)
-                  const timing = { ms: performance.now() - began, stoppedBy: ran.stoppedBy }
+                  const ms = performance.now() - began
+                  const recorded = {
+                    key,
+                    value: {
+                      first: 'failed' as const,
+                      cause,
+                      rerun: ran.failure === undefined ? {} : { failure: ran.failure },
+                    },
+                  }
                   if (ran.failure === undefined)
                     await step(`checked: ${command}`, {
                       result: {
@@ -734,26 +759,25 @@ export function createLander(
                         result: 'flaky',
                         ...(ran.summary ? { summary: ran.summary } : {}),
                       },
-                      ran: timing,
+                      ran: { ms },
+                      outcome: recorded,
                     })
                   else
                     await runtime.commit(async (tx) => {
+                      const draft = await tx.doc(Workspaces, ROOT_CONVERSATION_ID)
+                      const saved = draft.queue.find((item) => item.id === id)!
+                      saved.checks = { ...saved.checks, [key]: recorded.value }
                       await host.emit(tx, CheckRan, {
                         submission: id,
                         command,
                         result: ran.stoppedBy ? 'timeout' : 'failed',
-                        ms: Math.round(timing.ms),
+                        ms: Math.round(ms),
                       })
                     }, context)
-                  rerun = await runtime.memo<{ failure?: string }>(
-                    `${attemptMemoKey}:rerun`,
-                    ran.failure === undefined ? {} : { failure: ran.failure },
-                    context,
-                  )
+                  rerun = recorded.value.rerun
                 }
                 if (rerun.failure !== undefined) return { failure: rerun.failure }
-                const cause = await runtime.memo<string>(causeMemoKey, context)
-                return { flaky: cause ? `${command} · ${cause}` : command }
+                return { flaky: `${command} · ${cause}` }
               }
               const settledCheckGroup = await Promise.allSettled(
                 commands.map(runCheckWithOneDurableRerun),
