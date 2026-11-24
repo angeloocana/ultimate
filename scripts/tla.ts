@@ -12,7 +12,7 @@ const TLC = {
   sha256: '936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88',
 }
 const root = join(import.meta.dirname, '..')
-const cache = join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'ultimate')
+const cache = join(process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'ultimate')
 const jar = join(cache, `tla2tools-${TLC.version}.jar`)
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
@@ -28,8 +28,9 @@ async function tlcJar() {
   const bytes = new Uint8Array(await response.arrayBuffer())
   if (sha256(bytes) !== TLC.sha256) throw new Error(`${TLC.url} does not match the pinned sha256`)
   await mkdir(cache, { recursive: true })
-  await writeFile(`${jar}.partial`, bytes)
-  await rename(`${jar}.partial`, jar)
+  const partial = `${jar}.${process.pid}.partial`
+  await writeFile(partial, bytes)
+  await rename(partial, jar)
   return jar
 }
 
@@ -96,7 +97,7 @@ async function check(javaPath: string, jarPath: string, config: string) {
       ],
       { cwd: dirname(config), timeout: 120000, maxBuffer: 64 * 1024 * 1024, encoding: 'utf8' },
     )
-    const output = `${run.stdout}\n${run.stderr}`
+    const output = `${run.stdout}\n${run.stderr}${run.error ? `\n${run.error.message}` : ''}`
     const got = outcome(output)
     const states = /(\d+) distinct states found/.exec(output)?.[1] ?? '?'
     const name = relative(root, config)
@@ -117,6 +118,7 @@ if (import.meta.main) {
   const configs = existsSync(join(root, 'extensions'))
     ? models(join(root, 'extensions')).toSorted()
     : []
+  if (!configs.length) throw new Error('No TLA+ configs found in extensions/*/test/model/')
   const javaPath = java()
   const jarPath = await tlcJar()
   let ok = true

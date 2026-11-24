@@ -14,14 +14,17 @@ of one feature: `f05a2cbf`, `0c993799`, fixed for good by `f3c4c3da`), or wakes 
 
 ## Covered code
 
-The model is `extensions/messages/test/model/BranchReports.tla`. Each action is one commit in the code:
+The model is `extensions/messages/test/model/BranchReports.tla`. Each action is one durable step in the code (a commit,
+or a memo with the call it guards):
 
 | Action                        | Code                                                                                           |
 | ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| `RunAnswers`                  | `server.ts` `onYield`: creates `board.route` with `after: started.lastRoute`                   |
+| `RunYields`                   | `server.ts` `onYield`: creates `board.route` with `after: started.lastRoute`, run still live   |
+| `RunEnds`                     | the generation task settles, which phase `observe` waits on; the inbox moves on                |
 | `RouteAnswered`               | `route.ts` phase `answered`: note, judge, `promoteLastNote` or nothing, in one commit          |
-| `JudgeAsked` / `JudgeAnswers` | `route.ts` phase `judge`: memo `asked`, the call, memo `judged` with the `forward` checkpoint  |
+| `JudgeAsked` / `JudgeAnswers` | `route.ts` phase `judge`: memo `asked` and the call, then memo `judged` with its verdict       |
 | `JudgeInterrupted`            | `route.ts` phase `judge` rerun that finds `asked` without `judged`: `{ error: 'interrupted' }` |
+| `JudgeCommitted`              | `route.ts` phase `judge`: the commit of `Judgements` and the `forward` checkpoint              |
 | `Send`                        | `send.ts` `send`: the append transaction, its `ConversationRequestReceipts` and `stillReports` |
 | `Complete`                    | `route.ts` phase `forward`: the terminal commit                                                |
 | `Restart`                     | the host closes: in-process judge calls are lost, commits stay                                 |
@@ -38,7 +41,7 @@ confirmed that each row still matches the code at the new commit.
 
 One branch, three inputs (two from the user whose answers are work updates, one reply-expected message from a
 sibling), in any arrival order, one run at a time, at most one restart; the judge answers "report" or "note", or is
-interrupted. About 3,300 states, a few seconds. Left out: concluding and landing as separate events, answers routed
+interrupted. About 4,700 states, a few seconds. Left out: concluding and landing as separate events, answers routed
 back down from @ultimate, remote delivery, the 10 s judge timeout (a verdict like any other), and the judge's text.
 
 ## Run it
