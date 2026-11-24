@@ -68,8 +68,12 @@ afterEach(async () => {
   for (const home of taken) await removeTemp(home)
 })
 export const copies = new Map<string, string>()
-export async function launch(home: string) {
-  const ultimateRoot = copies.get(home) ?? (await sourceCopy(home))
+/** Run Ultimate for `project` (the clone itself by default) from the clone `ultimateRoot` (a fresh copy by default). */
+export async function launch(
+  home: string,
+  { ultimateRoot: shared, project }: { ultimateRoot?: string; project?: string } = {},
+) {
+  const ultimateRoot = shared ?? copies.get(home) ?? (await sourceCopy(home))
   copies.set(home, ultimateRoot)
   model ??= await scriptedModel(answer)
   // Pi locks files in its agent directory and waits 30 s before taking over a lock left by a SIGKILLed core, as long as
@@ -78,7 +82,7 @@ export async function launch(home: string) {
   await cp(model.env.PI_CODING_AGENT_DIR, agentDir, { recursive: true, force: false })
   const child = spawn(
     process.execPath,
-    [join(ultimateRoot, 'bin/ultimate.ts'), ultimateRoot, '--no-open'],
+    [join(ultimateRoot, 'bin/ultimate.ts'), project ?? ultimateRoot, '--no-open'],
     {
       cwd: ultimateRoot,
       env: {
@@ -102,10 +106,10 @@ export async function launch(home: string) {
   })
   return { child, ultimateRoot, output: () => output }
 }
-export async function fixture() {
+export async function fixture(options: Parameters<typeof launch>[1] = {}) {
   const home = await temp('ultimate-supervisor-')
   homes.push(home)
-  const running = await launch(home)
+  const running = await launch(home, options)
   await until(() => running.output().includes('Ultimate: http://'))
   return { ...running, home, url: /Ultimate: (http:\/\/[^\s]+)/.exec(running.output())![1] }
 }

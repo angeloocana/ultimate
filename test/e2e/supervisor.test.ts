@@ -66,6 +66,7 @@ describe('supervisor restart', () => {
     const stream = await attach(running.url)
     const pid = stream.system().process.pid
     await activationFailure(running.ultimateRoot)
+    await until(() => !!stream.system().process.activationError)
     await post(running.url, '/api/conversations/1/submit', { text: 'restart yourself' })
     await until(() =>
       transcript(stream.view()).includes(

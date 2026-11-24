@@ -80,7 +80,8 @@ export async function createWeb(options: {
   userHome: string
   home: string
   watch: Watch
-  before: () => Promise<unknown>
+  before: () => Promise<boolean>
+  coreCurrent: () => boolean
   pages: () => number
   changed: () => void
   notice: (message: string) => void
@@ -224,6 +225,11 @@ export async function createWeb(options: {
       if ((await stat(full)).isFile())
         allFileNamesAndContentsHash.update(file + '\0').update(await readFile(full))
     }
+    if (!options.coreCurrent()) {
+      await rm(outDir, { recursive: true, force: true })
+      stale = true
+      return
+    }
     const id = allFileNamesAndContentsHash.digest('hex').slice(0, 12)
     const bundlePath = join(folder, id)
     const identicalBundleExists = await stat(bundlePath).then(
@@ -276,7 +282,7 @@ export async function createWeb(options: {
       try {
         await mkdir(folder, { recursive: true })
         while (stale && !closing.signal.aborted) {
-          await options.before()
+          if (!(await options.before())) break
           stale = false
           changedFiles = [...pending]
           pending = new Set()
@@ -371,7 +377,7 @@ export async function createWeb(options: {
       if (options.pages() > 0 || building) await buildUntilFreshSerially()
     },
     async handle(request: IncomingMessage, response: ServerResponse) {
-      if (stale || !manifest) await buildUntilFreshSerially()
+      if (!manifest || (stale && options.coreCurrent())) await buildUntilFreshSerially()
       const bundleForEntireRequest = manifest
       if (!bundleForEntireRequest) {
         response.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })

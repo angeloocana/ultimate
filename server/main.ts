@@ -188,7 +188,8 @@ export async function prepareServer(options: Partial<ServerOptions> = {}) {
     userHome: host.userHome,
     home: host.home,
     watch,
-    before: () => extensions.prepareLoadBestEffort(),
+    before: () => extensions.prepareLoad(),
+    coreCurrent: () => extensions.coreCurrent(),
     pages: () => api?.pages() ?? 0,
     changed: () => void system?.changed(),
     notice: (message) => notice({ level: 'error', message }),
@@ -279,6 +280,7 @@ export async function prepareServer(options: Partial<ServerOptions> = {}) {
 export async function createServer(options: Partial<ServerOptions> = {}) {
   const prepared = await prepareServer(options)
   const opened = await prepared.go()
+  prepared.extensions.serving()
   return { ...prepared, ...opened, close: () => prepared.close() }
 }
 
@@ -328,6 +330,7 @@ if (process.argv[1] && resolvePath(process.argv[1]) === fileURLToPath(import.met
             if (message.type === 'go' || message.type === 'reacquire') {
               await server!.go(message.type === 'reacquire' ? message.error : undefined)
               send({ type: 'ready' })
+              server!.extensions.serving()
             }
             if (message.type === 'release') {
               await server!.release()

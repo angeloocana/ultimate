@@ -23,7 +23,7 @@ import { watchRoots } from './watch-roots.ts'
 import { actionExec } from './actions.ts'
 import type { ExtensionAction } from './actions.ts'
 import type { JsonValue } from '@earendil-works/chord/json'
-import { join, resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import type { ViteDevServer } from 'vite-plus'
 import type { ConversationSummary, ExtensionInfo, SystemInfo } from '../shared/protocol.ts'
 import type { PreparedHost } from './harness.ts'
@@ -42,6 +42,21 @@ import { secretMetadata } from '../lib/secrets.ts'
 import { ChangedEvent } from '../shared/events.ts'
 import type { Device, UiSource } from '../shared/events.ts'
 import { inProcess, isMissing, meansNone } from '../lib/errors.ts'
+import { acquireLock } from '../lib/lock.ts'
+import { corePath } from '../lib/layers.ts'
+import { coreHash } from './build.ts'
+
+const coreSwapLock = (ultimateRoot: string) =>
+  join(ultimateRoot, 'node_modules/.ultimate-core-swap.lock')
+const coreUpdatePending = (reason: string) =>
+  `Core update pending: this process keeps serving the code it loaded until it runs the core on disk. ${reason}`
+class CoreChanged extends Error {
+  constructor() {
+    super(coreUpdatePending('The core on disk changed during this reload.'))
+  }
+}
+const coreInput = (path: string) =>
+  corePath(path) || path === 'package.json' || path === 'pnpm-lock.yaml'
 
 export type ExtensionHost = Pick<
   PreparedHost,
@@ -70,7 +85,6 @@ export type ExtensionHost = Pick<
   resource<T>(key: string, create: () => T): T
   onOpen(callback: Opener): void
   onClose(cleanup: () => Promise<void>): void
-  onLoadError(callback: (name: string, error: string) => void): void
   onBeforeLoad(callback: () => Promise<void>): void
   harness(): Harness
   system(): SystemInfo
@@ -221,10 +235,6 @@ export async function loadExtensions(
         if (sharedResource) extensionHost.onClose(cleanup)
         else facetCleanups.get(facetHost)!.add(cleanup)
       },
-      onLoadError: (callback) => {
-        loadErrorListeners.add(callback)
-        stops.add(() => loadErrorListeners.delete(callback))
-      },
       onBeforeLoad: (callback) => {
         beforeLoad.add(callback)
         stops.add(() => beforeLoad.delete(callback))
@@ -291,7 +301,6 @@ export async function loadExtensions(
     })()
     await current.ending
   }
-  const loadErrorListeners = new Set<(name: string, error: string) => void>()
   const beforeLoad = new Set<() => Promise<void>>()
   async function preparationError() {
     let failed: string | undefined
@@ -304,15 +313,77 @@ export async function loadExtensions(
     return failed
   }
   let lastReportedPreparationFailure: string | undefined
-  async function prepareLoadBestEffort() {
+  let coreAttempted: string | undefined
+  type Approval = (generation: number) => Promise<void>
+  let restartRun: { automatic: boolean; approvals: Approval[]; done: Promise<string> } | undefined
+  async function restart(approved: Approval, automatic = false) {
+    if (restartRun?.automatic && !automatic) {
+      restartRun.approvals.push(approved)
+      return restartRun.done
+    }
+    if (restartRun) return 'A core swap is already in progress.'
+    const approvals = [approved]
+    const run = {
+      automatic,
+      approvals,
+      done: restartInTurn(async (generation) => {
+        for (const approval of approvals) await approval(generation)
+      }),
+    }
+    restartRun = run
+    try {
+      return await run.done
+    } finally {
+      if (restartRun === run) restartRun = undefined
+      checkCore()
+    }
+  }
+  async function restartInTurn(approved: (generation: number) => Promise<void>) {
     const failed = await preparationError()
+    if (failed) return failed
+    const lock = await acquireLock(
+      coreSwapLock(host.ultimateRoot),
+      { pid: process.pid },
+      10 * 60_000,
+    )
+    let closing: Promise<void> | undefined
+    const released = () => (closing ??= lock.close())
+    try {
+      return await host.restart(async (generation) => {
+        await released()
+        await approved(generation)
+      })
+    } finally {
+      await released()
+    }
+  }
+  function checkCore() {
+    const onDisk = coreHash(host.ultimateRoot)
+    if (onDisk === host.builds.bootCore) return true
+    if (serving && !restartRun && onDisk !== coreAttempted) {
+      coreAttempted = onDisk
+      inProcess(
+        'a failed swap leaves this process serving; the next core change on disk tries again',
+        restart(async () => {}, true).then(
+          (error) => notice(coreUpdatePending(error)),
+          (error: unknown) => notice(coreUpdatePending(String(error))),
+        ),
+      )
+    }
+    return false
+  }
+  async function prepareLoad() {
+    const failed = await preparationError()
+    if (!checkCore()) return false
     if (failed && failed !== lastReportedPreparationFailure) notice(`Loading as it is: ${failed}`)
     lastReportedPreparationFailure = failed
     const modules = join(host.ultimateRoot, 'node_modules')
     for (const environment of Object.values(vite.environments))
       await environment.pluginContainer.watchChange(modules, { event: 'create' })
+    return true
   }
   let open = false
+  let serving = false
   const cleanups = new Set<() => Promise<void>>()
   const resources = new Map<string, unknown>()
   async function invoke(
@@ -394,7 +465,6 @@ export async function loadExtensions(
       if (open) inProcess('the onOpen callback belongs to this extension host', runOpener(callback))
     },
     onClose: (cleanup) => cleanups.add(cleanup),
-    onLoadError: (callback) => loadErrorListeners.add(callback),
     onBeforeLoad: (callback) => beforeLoad.add(callback),
     ultimateRoot: host.ultimateRoot,
     projectRoot: host.projectRoot,
@@ -409,7 +479,7 @@ export async function loadExtensions(
       host.scanSubmissions(query, limit, cursor, caller),
     models: () => host.models(),
     skills: (cwd) => host.skills(cwd),
-    restart: async (approved) => (await preparationError()) ?? host.restart(approved),
+    restart: (approved: (generation: number) => Promise<void>) => restart(approved),
     get chapter() {
       return host.chapter
     },
@@ -455,8 +525,12 @@ export async function loadExtensions(
     },
     reloadExtensions: async () => {
       const work = chain
-        .then(() => (closed ? undefined : prepareLoadBestEffort()))
-        .then(() => (closed ? undefined : reloadSettings()))
+        .then(() => !closed && prepareLoad())
+        .then(async (current) => {
+          if (closed) return
+          if (!current) throw new Error(coreUpdatePending('Settings apply after the restart.'))
+          await reloadSettings()
+        })
       const recoveredQueueForLaterReloads = work.catch(() => changed())
       chain = recoveredQueueForLaterReloads
       await work
@@ -476,8 +550,8 @@ export async function loadExtensions(
   let chain = Promise.resolve()
   function enqueue(work: () => Promise<void>) {
     chain = chain
-      .then(() => (closed ? undefined : prepareLoadBestEffort()))
-      .then(() => (closed ? undefined : work()))
+      .then(() => !closed && prepareLoad())
+      .then((current) => (current ? work() : undefined))
       .catch((error: unknown) => {
         notice(`Extension reload failed: ${String(error)}`)
         return changed()
@@ -578,6 +652,7 @@ export async function loadExtensions(
         const facetHost = scope(name)
         try {
           const module = await vite.ssrLoadModule(join(target, 'server.ts'))
+          if (!checkCore()) throw new CoreChanged()
           const extension: Extension =
             typeof module.default === 'function' ? await module.default(facetHost) : module.default
           if (!extension || extension.name !== name)
@@ -620,6 +695,7 @@ export async function loadExtensions(
             )
             .map((entry) => `${entry.tool.name} is already provided by ${entry.extension.name}`)
           if (sameLayerToolConflicts.length) throw new Error(sameLayerToolConflicts.join('; '))
+          if (!checkCore()) throw new CoreChanged()
           host.registry.install(trace.tools(extension))
           const previousHost = facetHosts.get(name)
           facetHosts.set(name, facetHost)
@@ -649,11 +725,11 @@ export async function loadExtensions(
           }
         } catch (error) {
           await dispose(facetHost)
+          if (error instanceof CoreChanged) throw error
           record.server = {
             ...(previous?.server ?? { tools: [], sections: [], hooks: 0, docs: [] }),
             error: String(error),
           }
-          for (const listener of loadErrorListeners) listener(name, String(error))
         }
       } else if (!enabled || !record.facets.server) {
         await unload(name)
@@ -716,6 +792,10 @@ export async function loadExtensions(
       return
     if (settingsFiles.includes(resolve(file))) {
       enqueue(reloadSettings)
+      return
+    }
+    if (coreInput(relative(host.ultimateRoot, file))) {
+      enqueue(async () => {})
       return
     }
     const directory = directories.find((root) => file.startsWith(root + '/'))
@@ -839,8 +919,9 @@ export async function loadExtensions(
     doc: findDoc,
     catalogue: () => apis.catalogue(),
     trace: trace.reader,
-    restartRefusal: preparationError,
-    prepareLoadBestEffort,
+    restart: (approved: (generation: number) => Promise<void>) => restart(approved),
+    prepareLoad,
+    coreCurrent: checkCore,
     async opened() {
       trace.open()
       open = true
@@ -852,7 +933,16 @@ export async function loadExtensions(
           }
       await Promise.all([...openers].map(runOpener))
     },
+    serving() {
+      serving = true
+      if (restartRun) {
+        restartRun = undefined
+        notice(coreUpdatePending('The new core did not activate.'))
+      }
+      checkCore()
+    },
     async released() {
+      serving = false
       open = false
       await Promise.all([...openRuns.keys()].map(endOpen))
       trace.close()

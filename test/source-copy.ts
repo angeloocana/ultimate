@@ -5,7 +5,7 @@ export async function linkDependencies(root: string) {
   const target = join(root, 'node_modules')
   await mkdir(target)
   for (const name of await readdir(resolve('node_modules'))) {
-    if (name.startsWith('.vite')) continue
+    if (name.startsWith('.vite') || name.startsWith('.ultimate-')) continue
     await symlink(resolve('node_modules', name), join(target, name))
   }
 }

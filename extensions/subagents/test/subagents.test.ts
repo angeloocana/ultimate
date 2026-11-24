@@ -188,7 +188,6 @@ async function fixture(
       resource: (_key, create) => create(),
       onOpen: () => {},
       onClose: () => {},
-      onLoadError: () => {},
       onBeforeLoad: () => {},
       harness: () => opened!.harness,
       system: () => {
