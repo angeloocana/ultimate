@@ -31,7 +31,7 @@ export default async function buildOnce(project: TestProject) {
     userHome,
     home: folder,
     watch: () => () => {},
-    before: async () => {},
+    before: async () => true,
     pages: () => 1,
     changed: () => {},
     notice: (message) => notices.push(message),

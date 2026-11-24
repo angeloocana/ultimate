@@ -55,6 +55,10 @@ Server factories receive exactly these `ExtensionHost` fields (import its type o
 - `onLoadError(callback)`: run `callback(name, error)` each time an extension's server facet fails to load; facet-scoped.
 - `onBeforeLoad(callback)`: run and await `callback()` before each extension reload, web build and restart, so none reads a checkout or packages still being written (`update` waits for git and installs owed packages there). When it throws, a reload or build goes on with a notice and a restart is refused with the message; facet-scoped.
 
+## One core, one checkout
+
+A process loads extensions and builds the web UI only against the core it booted with. Before each reload and web build the core hashes `server/`, `shared/`, `package.json` and `pnpm-lock.yaml` again (`coreHash` in `server/build.ts`). While the hash matches, extension and web edits reload as usual. Once it differs, the process stops loading and keeps serving what it has, then swaps itself onto the core on disk through the ordinary restart (type check, candidate, handover). Every Ultimate running from the same clone does the same; their swaps take turns under `node_modules/.ultimate-core-swap.lock`. A swap that fails, or an `onBeforeLoad` callback that throws, leaves the process serving with a `Core update pending` notice; the next core change on disk tries again.
+
 ## Lifecycle
 
 Facet-registered `onOpen` and `onClose` callbacks are facet-scoped: they end on reload, disable, or unload. An `onOpen` registered after installation while the harness is already open runs immediately. Cleanup failures produce notices and do not stop the remaining facet cleanups. Callbacks registered synchronously inside a `resource()` factory are process-scoped and survive reloads until server shutdown. Process-scoped cleanups settle independently; failures produce notices without preventing core shutdown.

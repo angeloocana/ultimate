@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { readFile, stat } from 'node:fs/promises'
 import { realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
@@ -76,34 +76,6 @@ export async function coreChangedSince(git: Git, processBootHead: string | undef
   return changedCorePathsOrNoEvidence !== ''
 }
 
-export const AUTO_RESTART_PAUSE = 10 * 60_000
-
-export function restartOnStaleLoad(options: {
-  stale: () => Promise<boolean>
-  restart: () => Promise<string>
-  notice: (message: string) => void
-  last: { read: () => Promise<number | undefined>; write: (at: number) => Promise<void> }
-  pending: { current?: Promise<void> }
-  now?: () => number
-}) {
-  const { stale, restart, notice, last, pending, now = Date.now } = options
-  return (name: string) => {
-    pending.current ??= (async () => {
-      const at = await last.read()
-      const restartCooldownActive = at !== undefined && now() - at < AUTO_RESTART_PAUSE
-      if (restartCooldownActive) return
-      if (!(await stale())) return
-      await last.write(now())
-      notice(`Restarting: ${name} failed to load after a core change`)
-      notice(`Automatic restart failed: ${await restart()}`)
-    })()
-      .catch((error: unknown) => notice(`Automatic restart: ${String(error)}`))
-      .finally(() => {
-        pending.current = undefined
-      })
-  }
-}
-
 async function installPackages(
   host: ExtensionHost,
 ): Promise<{ install: 'done' | 'failed' | 'skipped'; installError?: string }> {
@@ -119,9 +91,6 @@ async function installPackages(
     return { install: 'failed', installError }
   }
   shared.failed = undefined
-  const broken = host.extensions().find((extension) => extension.server?.error)?.name
-  const scheduleRecoveryAfterInstall = shared.recover
-  if (broken) scheduleRecoveryAfterInstall?.(broken)
   return { install: 'done' }
 }
 
@@ -188,26 +157,6 @@ export default function update(host: ExtensionHost) {
   const shared = reloadSharedState(host)
   processBootHead(host)
   if (sharesHostCloneAsPreview()) return defineExtension({ name: 'update' })
-  const lastFile = join(host.home, 'update-auto-restart.json')
-  const pending = host.resource<{ current?: Promise<void> }>('update.auto-restart', () => ({}))
-  const onLoadError = restartOnStaleLoad({
-    stale: async () =>
-      (await installedSince(host.ultimateRoot, Date.parse(host.system().process.startedAt))) ||
-      (await coreChangedSince(gitIn(host.ultimateRoot), await processBootHead(host).head)),
-    restart: () => host.restart(async () => {}),
-    notice: (message) => host.notice(message),
-    last: {
-      read: () =>
-        readFile(lastFile, 'utf8').then(
-          (text) => (JSON.parse(text) as { at: number }).at,
-          () => undefined,
-        ),
-      write: (at) => writeFile(lastFile, JSON.stringify({ at })),
-    },
-    pending,
-  })
-  host.onLoadError(onLoadError)
-  shared.recover = onLoadError
   host.onBeforeLoad(() => loadable(host))
   const tick = () => {
     if (host.want(PauseApi)?.paused()) return
@@ -248,7 +197,6 @@ type Shared = {
   updating: Promise<UpdateResult> | undefined
   installing: Promise<void> | undefined
   failed: { lockfile: string | undefined; error: string } | undefined
-  recover: ((name: string) => void) | undefined
   latest: UpdateState | undefined
   updated: (UpdateResult & { ok: true }) | undefined
 }
@@ -260,7 +208,6 @@ const reloadSharedState = (host: ExtensionHost) =>
     updating: undefined,
     installing: undefined,
     failed: undefined,
-    recover: undefined,
     latest: undefined,
     updated: undefined,
   }))

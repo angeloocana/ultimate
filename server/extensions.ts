@@ -42,6 +42,13 @@ import { secretMetadata } from '../lib/secrets.ts'
 import { ChangedEvent } from '../shared/events.ts'
 import type { Device, UiSource } from '../shared/events.ts'
 import { inProcess, isMissing, meansNone } from '../lib/errors.ts'
+import { acquireLock } from '../lib/lock.ts'
+import { coreHash } from './build.ts'
+
+const coreSwapLock = (ultimateRoot: string) =>
+  join(ultimateRoot, 'node_modules/.ultimate-core-swap.lock')
+const coreUpdatePending = (error: string) =>
+  `Core update pending: the core on disk did not start, so this process keeps serving the code it loaded. ${error}`
 
 export type ExtensionHost = Pick<
   PreparedHost,
@@ -304,13 +311,52 @@ export async function loadExtensions(
     return failed
   }
   let lastReportedPreparationFailure: string | undefined
-  async function prepareLoadBestEffort() {
+  let coreOnDiskSwappedTo: string | undefined
+  let restarting = false
+  let booted = false
+  async function restartInTurn(approved: (generation: number) => Promise<void>) {
+    restarting = true
+    const lock = await acquireLock(
+      coreSwapLock(host.ultimateRoot),
+      { pid: process.pid },
+      10 * 60_000,
+    )
+    let closing: Promise<void> | undefined
+    const released = () => (closing ??= lock.close())
+    try {
+      return await host.restart(async (generation) => {
+        await released()
+        await approved(generation)
+      })
+    } finally {
+      restarting = false
+      await released()
+    }
+  }
+  async function prepareLoad() {
     const failed = await preparationError()
-    if (failed && failed !== lastReportedPreparationFailure) notice(`Loading as it is: ${failed}`)
+    const reportFailure = failed !== lastReportedPreparationFailure
     lastReportedPreparationFailure = failed
+    const onDisk = coreHash(host.ultimateRoot)
+    if (onDisk !== host.builds.bootCore) {
+      if (failed && reportFailure) notice(coreUpdatePending(failed))
+      if (!failed && !restarting && onDisk !== coreOnDiskSwappedTo) {
+        coreOnDiskSwappedTo = onDisk
+        inProcess(
+          'a failed swap leaves this process serving; the next core change on disk tries again',
+          restartInTurn(async () => {}).then(
+            (error) => notice(coreUpdatePending(error)),
+            (error: unknown) => notice(coreUpdatePending(String(error))),
+          ),
+        )
+      }
+      return false
+    }
+    if (failed && reportFailure) notice(`Loading as it is: ${failed}`)
     const modules = join(host.ultimateRoot, 'node_modules')
     for (const environment of Object.values(vite.environments))
       await environment.pluginContainer.watchChange(modules, { event: 'create' })
+    return true
   }
   let open = false
   const cleanups = new Set<() => Promise<void>>()
@@ -409,7 +455,7 @@ export async function loadExtensions(
       host.scanSubmissions(query, limit, cursor, caller),
     models: () => host.models(),
     skills: (cwd) => host.skills(cwd),
-    restart: async (approved) => (await preparationError()) ?? host.restart(approved),
+    restart: async (approved) => (await preparationError()) ?? restartInTurn(approved),
     get chapter() {
       return host.chapter
     },
@@ -455,8 +501,8 @@ export async function loadExtensions(
     },
     reloadExtensions: async () => {
       const work = chain
-        .then(() => (closed ? undefined : prepareLoadBestEffort()))
-        .then(() => (closed ? undefined : reloadSettings()))
+        .then(() => !closed && prepareLoad())
+        .then((current) => (current ? reloadSettings() : undefined))
       const recoveredQueueForLaterReloads = work.catch(() => changed())
       chain = recoveredQueueForLaterReloads
       await work
@@ -476,8 +522,8 @@ export async function loadExtensions(
   let chain = Promise.resolve()
   function enqueue(work: () => Promise<void>) {
     chain = chain
-      .then(() => (closed ? undefined : prepareLoadBestEffort()))
-      .then(() => (closed ? undefined : work()))
+      .then(() => !closed && prepareLoad())
+      .then((current) => (current ? work() : undefined))
       .catch((error: unknown) => {
         notice(`Extension reload failed: ${String(error)}`)
         return changed()
@@ -620,6 +666,11 @@ export async function loadExtensions(
             )
             .map((entry) => `${entry.tool.name} is already provided by ${entry.extension.name}`)
           if (sameLayerToolConflicts.length) throw new Error(sameLayerToolConflicts.join('; '))
+          if (booted && coreHash(host.ultimateRoot) !== host.builds.bootCore) {
+            await dispose(facetHost)
+            enqueue(async () => {})
+            return
+          }
           host.registry.install(trace.tools(extension))
           const previousHost = facetHosts.get(name)
           facetHosts.set(name, facetHost)
@@ -704,6 +755,7 @@ export async function loadExtensions(
     )
   }
   await reload()
+  booted = true
   let reloadAllAfterGraphReplacement = false
   const onChange = (file: string) => {
     if (
@@ -840,10 +892,11 @@ export async function loadExtensions(
     catalogue: () => apis.catalogue(),
     trace: trace.reader,
     restartRefusal: preparationError,
-    prepareLoadBestEffort,
+    prepareLoad,
     async opened() {
       trace.open()
       open = true
+      restarting = false
       for (const [name, facetHost] of facetHosts)
         for (const [message, recorded] of facetNotices.get(facetHost) ?? [])
           if (!recorded.recordedInEventLog) {
