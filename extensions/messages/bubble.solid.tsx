@@ -34,11 +34,7 @@ export function Bubble(props: {
     const state = status()
     return state === 'sending'
       ? !writing()
-      : state === 'queued' ||
-          state === 'yours' ||
-          state === 'failed' ||
-          state === 'stopped' ||
-          state === 'dismissed'
+      : state === 'yours' || state === 'failed' || state === 'stopped' || state === 'dismissed'
   }
   const statusLabel = () => (status() === 'yours' ? 'awaiting your reply' : status())
   return (

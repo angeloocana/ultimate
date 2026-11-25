@@ -280,6 +280,9 @@ export function counterparts(
 export const answerTo = (messages: readonly Message[], question: Message) =>
   messages.find((m) => m.from === 'user' && m.re === question.id)
 
+const isQueued = (message: Message) =>
+  message.to === 'remote' && message.state === 'sent' && message.remote?.id !== undefined
+
 export function openMessages(
   messages: readonly Message[],
   id: number,
@@ -301,12 +304,10 @@ export function openMessages(
       (m) => m.to === id && isOwed(m) && !owedBranches.some((b) => b.id === m.from),
     ),
     owed: owedBranches,
-    delivering: messages.filter((m) => m.from === id && m.state === 'sent'),
+    delivering: messages.filter((m) => m.from === id && m.state === 'sent' && !isQueued(m)),
+    queued: messages.filter((m) => m.from === id && isQueued(m)),
   }
 }
-
-const sending = (message: Message) =>
-  message.to === 'remote' && message.remote?.id !== undefined ? 'queued' : 'sending'
 
 export function messageStatus(message: Message) {
   if (message.state === 'failed') return 'failed'
@@ -314,7 +315,7 @@ export function messageStatus(message: Message) {
   if (message.state === 'answered') return 'answered'
   if (message.state === 'dismissed') return 'dismissed'
   if (isOpen(message)) return message.to === 'user' ? 'yours' : 'waiting'
-  if (message.state === 'sent') return sending(message)
+  if (message.state === 'sent') return 'sending'
   return message.re === undefined ? 'one-way' : 'reply'
 }
 
@@ -327,7 +328,7 @@ export function outgoingState(message: Message | undefined, toUser: boolean, run
   if (message.state === 'stopped') return 'stopped by the user'
   if (message.state === 'answered') return 'answered'
   if (message.state === 'dismissed') return 'dismissed'
-  if (message.state === 'sent') return sending(message)
+  if (message.state === 'sent') return 'sending'
   if (!message.reply) return 'delivered'
   return toUser ? 'awaiting your reply' : 'awaiting reply'
 }

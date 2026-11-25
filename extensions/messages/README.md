@@ -123,7 +123,9 @@ message is never the user's.
 - **Queued until it arrives.** The target's `remote` returns its id once it took the message, and the sender shows
   the tell `queued`. When the target's delivery to its @ultimate settles, it posts the sender's
   `messages.remoteStatus { key, delivered, error? }` (a durable effect): delivered marks the tell `delivered`, a failure
-  fails it with the reason and wakes the sender with a failed reply. A target too old to post it leaves the tell `queued`
+  fails it with the reason and wakes the sender with a failed reply. A reply-expected tell its @ultimate never took
+  settles through its failed or stopped reply instead, so the two never race. An interim answer also marks it
+  delivered, and Open Messages lists a tell as queued until then. A target too old to post it leaves the tell `queued`
   until its answer arrives.
 - **One hop back:** with `reply`, the answer posts to the sender's
   `messages.remoteReply { key, text, failed, stopped?, interim? }` as a reply that expects none.
@@ -179,7 +181,7 @@ Server side, imported in one direction (`log`, `images`, `addresses`, `questions
 - `route.ts`: the `board.route` task: notes, reports (weighed by the judge) and answers back down.
 - `judged.solid.tsx`: the judge's verdict chip on a message card and a branch's final answer.
 - `outcomes.ts`: fail requests whose owner has stopped, failed or been deleted.
-- `remote.ts`: `tell`, the `remote` and `remoteReply` actions.
+- `remote.ts`: `tell`, the `remote`, `remoteReply` and `remoteStatus` actions.
 - `branch.ts`: the `branch` tool.
 - `addresses.ts`: resolving `to`, sender names, a subagent's parent and the lander.
 - `images.ts`, `questions.ts`, `log.ts`: forwarded images, questions and the `board.open` line, the bounded log.

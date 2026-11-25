@@ -16,7 +16,7 @@ import { append } from './log.ts'
 import { isOpen } from '../../lib/message-state.ts'
 import { branchesReadThisRun, remoteLabel, senderName, serve } from './addresses.ts'
 import { dropped } from './outcomes.ts'
-import { delivery } from './delivery.ts'
+import { delivery, REMOTE_ERROR_LIMIT } from './delivery.ts'
 
 type PendingRemoteAnswer = {
   message: Message
@@ -164,7 +164,9 @@ export const tellTask = (host: ExtensionHost) =>
         (m) => m.id === message,
       )
       if (!outcome.ok) {
-        if (stored?.state === 'sent') {
+        const targetAlreadyReported = stored !== undefined && stored.state !== 'sent'
+        if (targetAlreadyReported) return
+        if (stored) {
           stored.state = 'failed'
           stored.error = outcome.error
         }
@@ -295,7 +297,7 @@ export async function remoteStatusAction(args: JsonValue, { host }: ActionContex
   const key = field(input.key, 'key', 100)
   if (typeof input.delivered !== 'boolean') throw new Error('delivered must be a boolean')
   const delivered = input.delivered
-  const error = delivered ? undefined : field(input.error, 'error', 10_000)
+  const error = delivered ? undefined : field(input.error, 'error', REMOTE_ERROR_LIMIT)
   const told = (
     await host.harness().snapshot(Messages, ROOT_CONVERSATION_ID, BACKGROUND_CONTEXT)
   )?.messages.find((m) => m.to === 'remote' && m.remote?.key === key)

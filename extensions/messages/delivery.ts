@@ -33,6 +33,8 @@ import { MessageEntry, ReplyEntry } from '../entries/api.ts'
 import { asleepUntilSettled, notify, settledSubmission, signalSettled } from '../../lib/settled.ts'
 import { defineEffect } from '../../lib/effect.ts'
 
+export const REMOTE_ERROR_LIMIT = 10_000
+
 export const remoteStatusTask = (host: ExtensionHost) =>
   defineEffect<{ remote: Message['remote'] & {}; delivered: boolean; error?: string }, JsonValue>(
     'messages.remoteStatus',
@@ -59,7 +61,11 @@ async function reportToRemoteSender(
   if (m.from !== 'remote' || !m.remote) return
   await tx.createTask(
     remoteStatusTask(host),
-    { remote: m.remote, delivered, ...(error === undefined ? {} : { error }) },
+    {
+      remote: m.remote,
+      delivered,
+      ...(error === undefined ? {} : { error: error.slice(0, REMOTE_ERROR_LIMIT) }),
+    },
     { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: 'conversation' }, background: true },
   )
 }
@@ -233,16 +239,19 @@ export function delivery(host: ExtensionHost) {
                   : 'failed'
             if ('entry' in placement && placement.entry !== undefined)
               stored.entry = placement.entry
+            const placed =
+              placement.status !== 'unanswered' ||
+              ('entry' in placement && placement.entry !== undefined)
+            if (placed) await reportToRemoteSender(host, tx, m, true)
+            else if (!m.reply)
+              await reportToRemoteSender(
+                host,
+                tx,
+                m,
+                false,
+                `Not delivered to ${task.input.toLabel}: ${placement.reason}`,
+              )
           }
-          await reportToRemoteSender(
-            host,
-            tx,
-            m,
-            placement.status !== 'unanswered',
-            placement.status === 'unanswered'
-              ? `Not delivered to ${task.input.toLabel}: ${placement.reason}`
-              : undefined,
-          )
           if (task.input.note) return terminal
           return notified ? asleepUntilSettled({ phase: 'settled' as const }) : undefined
         }, ctx)

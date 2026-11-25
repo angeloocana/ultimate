@@ -2673,6 +2673,28 @@ it('keeps an answer that arrived before the post to another Ultimate failed', as
   await until(async () => (await replies(f)).length === 1)
   await f.opened.root.waitForIdle(context)
 })
+it('keeps waiting for the answer when the target reported delivery before the post failed', async () => {
+  let f!: Awaited<ReturnType<typeof remoteFixture>>
+  const server = createServer(async (request) => {
+    let raw = ''
+    for await (const chunk of request) raw += String(chunk)
+    const { key } = (JSON.parse(raw) as { args: { key: string } }).args
+    await actions.remoteStatus({ key, delivered: true }, f.action())
+    request.socket.destroy()
+  })
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
+  servers.push(server)
+  f = await remoteFixture(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)
+  await expect(
+    f.service().tell(ROOT_CONVERSATION_ID, { project: 'poe2-rust', text: 'Run it' }, context),
+  ).rejects.toThrow('poe2-rust on this machine did not answer')
+  const told = (await f.log())!.messages.find((m) => m.to === 'remote')!
+  expect(told).toMatchObject({ state: 'delivered' })
+  expect(told.error).toBeUndefined()
+  await actions.remoteReply({ key: told.remote!.key, text: 'Done', failed: false }, f.action())
+  await until(async () => (await replies(f)).length === 1)
+  expect((await f.log())!.messages.find((m) => m.id === told.id)!.state).toBe('answered')
+})
 it('takes a late answer after the log dropped its message, and keys named like object properties', async () => {
   const other = await otherUltimate(() => [200, { result: 3 }])
   const f = await remoteFixture(other.url)
