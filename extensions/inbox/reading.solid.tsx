@@ -100,16 +100,23 @@ export function Reading(props: { entry: Entry; now: number; phone: boolean; onBa
               </time>
             </span>
           </header>
-          <h2 class="mt-3 text-[17px] leading-7 font-semibold tracking-[-0.01em]">
-            {props.entry.item?.heading?.() ?? (
-              <Markdown
-                text={asOneParagraph(text()?.title ?? props.entry.item?.title ?? '')}
-                without={['img']}
+          <Show when={text()?.title || props.entry.item}>
+            <h2 class="mt-3 text-[17px] leading-7 font-semibold tracking-[-0.01em]">
+              {props.entry.item?.heading?.() ?? (
+                <Markdown
+                  text={asOneParagraph(text()?.title ?? props.entry.item?.title ?? '')}
+                  without={['img']}
+                />
+              )}
+            </h2>
+          </Show>
+          <Show when={text()?.body}>
+            {(body) => (
+              <Body
+                class={cn('px-0 py-0 text-[15px] leading-6', text()?.title ? 'mt-1' : 'mt-3')}
+                text={body()}
               />
             )}
-          </h2>
-          <Show when={text()?.body}>
-            {(body) => <Body class="mt-1 px-0 py-0 text-[15px] leading-6" text={body()} />}
           </Show>
           <Show when={images()}>
             {(image) => (

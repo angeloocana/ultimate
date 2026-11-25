@@ -87,7 +87,7 @@ export const withContext = (context: string, text: string) =>
   text.trim() ? `${context}\n\n${text.trim()}` : context
 
 export const questionContext = (message: Pick<Message, 'id' | 'text'>) =>
-  `About your question #${message.id} (“${readerText(lead(message.text).title).slice(0, 160)}”), sent from the Inbox. This is not an answer: the question stays open.`
+  `About your question #${message.id} (“${questionTitle(message.text).slice(0, 160)}”), sent from the Inbox. This is not an answer: the question stays open.`
 
 export function selectionAfterChange(
   entries: readonly Anchor[],
@@ -107,6 +107,7 @@ export const previewUrl = (text: string) =>
 
 export function lead(text: string) {
   const trimmed = text.trimStart()
+  if (hasDefinitions(inline.parse(trimmed))) return { title: '', body: trimmed }
   const bold = /^\*\*(.+?)\*\*[:.]?\s*/.exec(trimmed)
   if (bold) return { title: bold[1].trim(), body: trimmed.slice(bold[0].length) }
   const [first = '', ...rest] = trimmed.split('\n')
@@ -125,6 +126,10 @@ export const asOneParagraph = (title: string) =>
     )
 
 const inline = unified().use(remarkParse).use(remarkGfm)
+const hasDefinitions = (node: Nodes): boolean =>
+  node.type === 'definition' ||
+  node.type === 'footnoteDefinition' ||
+  ('children' in node && node.children.some(hasDefinitions))
 const textOf = (node: Nodes): string =>
   node.type === 'html'
     ? ''
@@ -136,7 +141,11 @@ const textOf = (node: Nodes): string =>
           ? node.children.map(textOf).join('')
           : ''
 
-export const readerText = (title: string) => textOf(inline.parse(asOneParagraph(title))).trim()
+const readerText = (title: string) => textOf(inline.parse(asOneParagraph(title))).trim()
+const questionTitle = (text: string) => {
+  const { title } = lead(text)
+  return title ? readerText(title) : markdownText(text, true)
+}
 
 export const tagOf = (entry: Entry) =>
   entry.message ? (previewUrl(entry.message.text) ? 'preview' : 'question') : entry.item.tag
@@ -154,7 +163,7 @@ export function toRow(entry: Entry, today: string): Row {
     at,
     ...senderOf(entry),
     tag: tagOf(entry),
-    title: readerText(message ? lead(message.text).title : item.title),
+    title: message ? questionTitle(message.text) : readerText(item.title),
     gist: message ? markdownText(message.questions?.[0]?.text ?? '') : item.gist,
     more: Math.max(0, (message?.questions?.length ?? 0) - 1),
     message: message?.id,
@@ -175,7 +184,7 @@ export function answeredToday(messages: readonly Message[], now: number): Answer
               ...sender(m.from),
               id: m.id,
               at: reply.at,
-              title: readerText(lead(m.text).title),
+              title: questionTitle(m.text),
             },
           ]
         : []
