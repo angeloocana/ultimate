@@ -1,4 +1,5 @@
 import type { Context } from '@earendil-works/chord/context'
+import type { JsonValue } from '@earendil-works/chord/json'
 import { awaitWithContext } from '@earendil-works/chord/context'
 import {
   AssistantEntry,
@@ -30,6 +31,38 @@ import { append, terminal } from './log.ts'
 import { EarlyReplies, remoteLabel, sameOwner, Serving, servesLine } from './addresses.ts'
 import { MessageEntry, ReplyEntry } from '../entries/api.ts'
 import { asleepUntilSettled, notify, settledSubmission, signalSettled } from '../../lib/settled.ts'
+import { defineEffect } from '../../lib/effect.ts'
+
+export const remoteStatusTask = (host: ExtensionHost) =>
+  defineEffect<{ remote: Message['remote'] & {}; delivered: boolean; error?: string }, JsonValue>(
+    'messages.remoteStatus',
+    async ({ remote, delivered, error }, { signal }) => {
+      const target = await locate(host, remote.project, remote.machine)
+      if ('current' in target) throw new Error(`${remote.project} is this project`)
+      return (await postAction(
+        target,
+        'messages',
+        'remoteStatus',
+        { key: remote.key, delivered, ...(error === undefined ? {} : { error }) },
+        signal,
+      )) as JsonValue
+    },
+  )
+
+async function reportToRemoteSender(
+  host: ExtensionHost,
+  tx: Tx,
+  m: Message,
+  delivered: boolean,
+  error?: string,
+) {
+  if (m.from !== 'remote' || !m.remote) return
+  await tx.createTask(
+    remoteStatusTask(host),
+    { remote: m.remote, delivered, ...(error === undefined ? {} : { error }) },
+    { conversationId: ROOT_CONVERSATION_ID, ownership: { kind: 'conversation' }, background: true },
+  )
+}
 
 const questionLinkOutsideLog = (message: Pick<Message, 're'>): Pick<Message, 're'> =>
   message.re !== undefined ? { re: message.re } : {}
@@ -157,6 +190,7 @@ export function delivery(host: ExtensionHost) {
               stored.state = 'failed'
               stored.error = error
             }
+            await reportToRemoteSender(host, tx, m, false, error)
             return terminal
           }, ctx)
           return undefined
@@ -200,6 +234,15 @@ export function delivery(host: ExtensionHost) {
             if ('entry' in placement && placement.entry !== undefined)
               stored.entry = placement.entry
           }
+          await reportToRemoteSender(
+            host,
+            tx,
+            m,
+            placement.status !== 'unanswered',
+            placement.status === 'unanswered'
+              ? `Not delivered to ${task.input.toLabel}: ${placement.reason}`
+              : undefined,
+          )
           if (task.input.note) return terminal
           return notified ? asleepUntilSettled({ phase: 'settled' as const }) : undefined
         }, ctx)

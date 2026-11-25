@@ -63,7 +63,7 @@ export async function projectsSection(
       }),
   )
   if (!lines.length) return undefined
-  return `Other projects on this machine and their standing agents besides their own @ultimate. Reach one with codemode \`tools.tell({project, text, reply?, machine?}): Promise<{message, delivered}>\`; its @ultimate routes to the others. With reply (default true) its answer returns to you as a reply; machine picks one instance when the project runs on several.\n${lines.join('\n')}`
+  return `Other projects on this machine and their standing agents besides their own @ultimate. Reach one with codemode \`tools.tell({project, text, reply?, machine?}): Promise<{message, queued}>\`; its @ultimate routes to the others. Queued means it took the message; whether it reached its @ultimate comes back later, and a failed delivery returns to you as a failed reply. With reply (default true) its answer returns to you as a reply; machine picks one instance when the project runs on several.\n${lines.join('\n')}`
 }
 
 export async function tell(
@@ -138,8 +138,8 @@ export async function tell(
     )
     return { message: message.id, posting }
   }, ctx)
-  const delivered = await effectResult(host.harness(), logged.posting, ctx)
-  return { message: logged.message, delivered }
+  const queued = await effectResult(host.harness(), logged.posting, ctx)
+  return { message: logged.message, queued }
 }
 
 export const tellTask = (host: ExtensionHost) =>
@@ -181,10 +181,7 @@ export const tellTask = (host: ExtensionHost) =>
         }
         return
       }
-      if (!stored) return
-      stored.remote = { ...stored.remote!, id: outcome.value }
-      const replyHasNotArrivedFirst = stored.state === 'sent'
-      if (replyHasNotArrivedFirst) stored.state = 'delivered'
+      if (stored) stored.remote = { ...stored.remote!, id: outcome.value }
     },
   )
 
@@ -293,6 +290,32 @@ export async function dismissTell(
   }, ctx)
 }
 
+export async function remoteStatusAction(args: JsonValue, { host }: ActionContext) {
+  const input = (args ?? {}) as Record<string, unknown>
+  const key = field(input.key, 'key', 100)
+  if (typeof input.delivered !== 'boolean') throw new Error('delivered must be a boolean')
+  const delivered = input.delivered
+  const error = delivered ? undefined : field(input.error, 'error', 10_000)
+  const told = (
+    await host.harness().snapshot(Messages, ROOT_CONVERSATION_ID, BACKGROUND_CONTEXT)
+  )?.messages.find((m) => m.to === 'remote' && m.remote?.key === key)
+  if (!told) throw new Error('No message from this Ultimate has that key')
+  const fromLabel = await senderName(host, told.from, BACKGROUND_CONTEXT)
+  return host.harness().commit(async (tx) => {
+    const stored = (await tx.doc(Messages, ROOT_CONVERSATION_ID)).messages.find(
+      (m) => m.id === told.id,
+    )
+    if (stored?.state !== 'sent') return told.id
+    if (delivered) {
+      stored.state = 'delivered'
+      return stored.id
+    }
+    stored.error = error
+    const entry = (await tx.doc(UnprunedRemoteReceipts, ROOT_CONVERSATION_ID)).told[key]
+    return answerTell(host, tx, stored, entry, { key, body: error!, failed: true, fromLabel })
+  }, BACKGROUND_CONTEXT)
+}
+
 export async function remoteReplyAction(args: JsonValue, { host }: ActionContext) {
   const input = (args ?? {}) as Record<string, unknown>
   const key = field(input.key, 'key', 100)
@@ -312,48 +335,79 @@ export async function remoteReplyAction(args: JsonValue, { host }: ActionContext
     if (entry.answer !== undefined) return entry.answer
     if (interim !== undefined && entry.interims?.[interim] !== undefined)
       return entry.interims[interim]
-    const original = entry.message
-    const stored = (await tx.doc(Messages, ROOT_CONVERSATION_ID)).messages.find(
-      (m) => m.id === original.id,
-    )
-    if (stored && interim === undefined)
-      stored.state = stopped ? 'stopped' : failed ? 'failed' : 'answered'
-    const response = await append(tx, {
-      from: 'remote',
-      to: original.from,
-      text: body,
-      reply: false,
-      re: original.id,
-      state: 'sent',
-      remote: original.remote!,
-      ...(interim !== undefined ? { interim: true as const } : {}),
+    return answerTell(host, tx, entry.message, entry, {
+      key,
+      body,
+      failed,
+      stopped,
+      interim,
+      fromLabel,
     })
-    if (interim !== undefined) entry.interims = { ...entry.interims, [interim]: response.id }
-    else entry.answer = response.id
-    if (failed)
-      await dropped(
-        host,
-        tx,
-        { kind: 'tell', key },
-        `The tell to ${remoteLabel(original.remote!)},`,
-        stopped ? 'was stopped' : `failed (${body})`,
-      )
-    await tx.createTask(
-      delivery(host),
-      {
-        message: original,
-        steer: true,
-        note: false,
-        fromLabel,
-        toLabel: remoteLabel(original.remote!),
-        reply: { message: response, failed, ...(stopped ? { stopped } : {}) },
-      },
-      {
-        conversationId: ROOT_CONVERSATION_ID,
-        ownership: { kind: 'conversation' },
-        background: true,
-      },
-    )
-    return response.id
   }, BACKGROUND_CONTEXT)
+}
+
+async function answerTell(
+  host: ExtensionHost,
+  tx: Tx,
+  original: Message,
+  entry: PendingRemoteAnswer | undefined,
+  {
+    key,
+    body,
+    failed,
+    stopped,
+    interim,
+    fromLabel,
+  }: {
+    key: string
+    body: string
+    failed: boolean
+    stopped?: boolean
+    interim?: string
+    fromLabel: string
+  },
+) {
+  const stored = (await tx.doc(Messages, ROOT_CONVERSATION_ID)).messages.find(
+    (m) => m.id === original.id,
+  )
+  if (stored && interim === undefined)
+    stored.state = stopped ? 'stopped' : failed ? 'failed' : 'answered'
+  else if (stored?.state === 'sent') stored.state = 'delivered'
+  const response = await append(tx, {
+    from: 'remote',
+    to: original.from,
+    text: body,
+    reply: false,
+    re: original.id,
+    state: 'sent',
+    remote: original.remote!,
+    ...(interim !== undefined ? { interim: true as const } : {}),
+  })
+  if (entry && interim !== undefined) entry.interims = { ...entry.interims, [interim]: response.id }
+  else if (entry) entry.answer = response.id
+  if (failed)
+    await dropped(
+      host,
+      tx,
+      { kind: 'tell', key },
+      `The tell to ${remoteLabel(original.remote!)},`,
+      stopped ? 'was stopped' : `failed (${body})`,
+    )
+  await tx.createTask(
+    delivery(host),
+    {
+      message: original,
+      steer: true,
+      note: false,
+      fromLabel,
+      toLabel: remoteLabel(original.remote!),
+      reply: { message: response, failed, ...(stopped ? { stopped } : {}) },
+    },
+    {
+      conversationId: ROOT_CONVERSATION_ID,
+      ownership: { kind: 'conversation' },
+      background: true,
+    },
+  )
+  return response.id
 }

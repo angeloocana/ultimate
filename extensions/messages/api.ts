@@ -119,14 +119,14 @@ export type MessagesService = {
   /**
    * From the primary agent's conversation `from`, message another project's primary agent (on `machine`, else where it
    * runs): only that Ultimate receives it. With `reply`, its answer returns here as a reply. Returns this log's id of the
-   * message and the target's id of the delivered one; throws a sentence naming the machine when it cannot be reached.
+   * message and the target's id of the queued one (it took the message; its delivery reports back later); throws a sentence naming the machine when it cannot be reached.
    * The post is a durable task created with the logged message: a crash before it settles posts again, once per key.
    */
   tell(
     from: ConversationId,
     input: { project: string; machine?: string; text: string; reply?: boolean },
     ctx: Context,
-  ): Promise<{ message: number; delivered: number }>
+  ): Promise<{ message: number; queued: number }>
   /**
    * In the creation transaction, let `automation` take over the requests related to @ultimate's current run.
    * Omit the id if the automation doesn't wake @ultimate. Return the branches that still expect the run's feedback.
