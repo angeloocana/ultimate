@@ -38,7 +38,10 @@
     <script>
       // A reload paints the page as it last looked until the app has rendered again (web/src/sdk/resume.ts).
       {
-        const resume = JSON.parse(sessionStorage.getItem('ultimate.resume') ?? 'null')
+        const navigation = performance.getEntriesByType('navigation')[0]?.type
+        const resume =
+          (navigation === 'reload' || navigation === 'back_forward') &&
+          JSON.parse(sessionStorage.getItem('ultimate.resume') ?? 'null')
         if (resume && Date.now() - resume.at < 30000) {
           const view = document.createElement('div')
           view.id = 'resume'

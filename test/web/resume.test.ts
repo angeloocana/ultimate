@@ -83,7 +83,7 @@ class Element {
   }
 }
 
-function page(stored?: string) {
+function page(stored?: string, navigation: PerformanceNavigationTiming['type'] = 'reload') {
   const items = new Map<string, string>(stored ? [['ultimate.resume', stored]] : [])
   const sessionStorage = {
     getItem: (key: string) => items.get(key) ?? null,
@@ -99,7 +99,8 @@ function page(stored?: string) {
     createElement: (tag: string) => new Element(tag.toUpperCase()),
     querySelectorAll: () => [],
   }
-  return { document, sessionStorage, items, body, location: { search: '' } }
+  const performance = { getEntriesByType: () => [{ type: navigation }] }
+  return { document, sessionStorage, items, body, performance, location: { search: '' } }
 }
 
 afterEach(() => {
@@ -168,6 +169,12 @@ describe('resuming a reload', () => {
     const [scrolled] = view.querySelectorAll('[data-resume-scroll]')
     expect(style.textContent).toContain('body { color: red; }')
     expect(Number(scrolled.scrollTop)).toBe(420)
+  })
+
+  it('does not cover an ordinary return to a project with its old view', () => {
+    const returned = page(JSON.stringify({ at: Date.now(), html: '', css: '' }), 'navigate')
+    runInNewContext(paint, returned)
+    expect(returned.body.children).toEqual([])
   })
 
   it('starts fresh without a view, or with one stored long ago', () => {
