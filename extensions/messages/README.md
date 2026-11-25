@@ -120,6 +120,13 @@ message is never the user's.
   delivers once. A request that expects a reply is refused when the target has no route back to the sender (its
   `remotes` or the cloud register), so the sender's `tell` fails at once instead of waiting for an answer that cannot
   arrive.
+- **Queued until it arrives.** The target's `remote` returns its id once it took the message, and the sender shows
+  the tell `queued`. When the target's delivery to its @ultimate settles, it posts the sender's
+  `messages.remoteStatus { key, delivered, error? }` (a durable effect): delivered marks the tell `delivered`, a failure
+  fails it with the reason and wakes the sender with a failed reply. A reply-expected tell its @ultimate never took
+  settles through its failed or stopped reply instead, so the two never race. An interim answer also marks it
+  delivered, and Open Messages lists a tell as queued until then. A target too old to post it leaves the tell `queued`
+  until its answer arrives.
 - **One hop back:** with `reply`, the answer posts to the sender's
   `messages.remoteReply { key, text, failed, stopped?, interim? }` as a reply that expects none.
 - **The reply is the wait.** `board.serving` records one owner per request. An answer that hands a remote request on
@@ -128,10 +135,10 @@ message is never the user's.
 - **Failures are loud.** Lost owners fail the request once. An answer that cannot be posted wakes the answering
   @ultimate with the cause and the undelivered text. Two Ultimates never loop: a reply expects no answer.
 - **Durable on the sender:** `tell` logs the message and creates the `messages.tell` effect task in one commit; the
-  task posts and settles the message `delivered` or `failed`. A crash before it settles posts again with the same
+  task posts and records the target's id, or settles the message `failed`. A crash before it settles posts again with the same
   key, which the target delivers once.
 
-`remote` and `remoteReply` are user-only actions, reached only by another instance's HTTP call. A remote sender shows
+`remote`, `remoteReply` and `remoteStatus` are user-only actions, reached only by another instance's HTTP call. A remote sender shows
 as `@ultimate@<project> on <machine>` with a globe mark and a violet accent.
 
 ## Document and typed inputs
@@ -174,7 +181,7 @@ Server side, imported in one direction (`log`, `images`, `addresses`, `questions
 - `route.ts`: the `board.route` task: notes, reports (weighed by the judge) and answers back down.
 - `judged.solid.tsx`: the judge's verdict chip on a message card and a branch's final answer.
 - `outcomes.ts`: fail requests whose owner has stopped, failed or been deleted.
-- `remote.ts`: `tell`, the `remote` and `remoteReply` actions.
+- `remote.ts`: `tell`, the `remote`, `remoteReply` and `remoteStatus` actions.
 - `branch.ts`: the `branch` tool.
 - `addresses.ts`: resolving `to`, sender names, a subagent's parent and the lander.
 - `images.ts`, `questions.ts`, `log.ts`: forwarded images, questions and the `board.open` line, the bounded log.

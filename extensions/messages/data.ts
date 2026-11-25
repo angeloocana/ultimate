@@ -280,6 +280,9 @@ export function counterparts(
 export const answerTo = (messages: readonly Message[], question: Message) =>
   messages.find((m) => m.from === 'user' && m.re === question.id)
 
+const isQueued = (message: Message) =>
+  message.to === 'remote' && message.state === 'sent' && message.remote?.id !== undefined
+
 export function openMessages(
   messages: readonly Message[],
   id: number,
@@ -301,7 +304,8 @@ export function openMessages(
       (m) => m.to === id && isOwed(m) && !owedBranches.some((b) => b.id === m.from),
     ),
     owed: owedBranches,
-    delivering: messages.filter((m) => m.from === id && m.state === 'sent'),
+    delivering: messages.filter((m) => m.from === id && m.state === 'sent' && !isQueued(m)),
+    queued: messages.filter((m) => m.from === id && isQueued(m)),
   }
 }
 

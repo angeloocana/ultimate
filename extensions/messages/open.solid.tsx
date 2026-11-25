@@ -113,11 +113,12 @@ export function OpenMessages() {
   const counts = createMemo(() => {
     const messages = open()
     if (!messages) return ''
-    const { waiting, requests, delivering, owed } = messages
+    const { waiting, requests, delivering, queued, owed } = messages
     return [
       waiting.length && `${waiting.length} waiting`,
       requests.length + owed.length > 0 && `${requests.length + owed.length} owed`,
       delivering.length && `${delivering.length} delivering`,
+      queued.length && `${queued.length} queued`,
     ]
       .filter(Boolean)
       .join(' · ')
@@ -140,7 +141,7 @@ export function OpenMessages() {
         </PopoverTrigger>
         <PopoverContent
           align="start"
-          aria-label="Waiting, owed and delivering messages"
+          aria-label="Waiting, owed, delivering and queued messages"
           class="grid w-80 gap-2.5 p-1.5 font-mono text-[11px]"
           side="top"
         >
@@ -182,6 +183,13 @@ export function OpenMessages() {
             open={go}
             side="to"
             title="Delivering to"
+          />
+          <Section
+            messages={open()?.queued ?? []}
+            now={now()}
+            open={go}
+            side="to"
+            title="Queued for"
           />
         </PopoverContent>
       </Popover>

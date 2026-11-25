@@ -2477,17 +2477,20 @@ it('reaches Paused · safe while a delivery waits for its held recipient to answ
 /** Another Ultimate on this machine, as an HTTP server that records the actions posted to it and answers `answer`. */
 async function otherUltimate(answer: (path: string, body: JsonValue) => [number, unknown]) {
   const posted: { path: string; body: JsonValue }[] = []
+  /** The delivery reports (`remoteStatus`) posted to it, kept apart from the messages and replies in `posted`. */
+  const statuses: JsonValue[] = []
   const server = createServer(async (request, response) => {
     let raw = ''
     for await (const chunk of request) raw += String(chunk)
     const body = (JSON.parse(raw) as { args: JsonValue }).args
-    posted.push({ path: request.url ?? '', body })
+    if (request.url?.endsWith('/remoteStatus')) statuses.push(body)
+    else posted.push({ path: request.url ?? '', body })
     const [status, json] = answer(request.url ?? '', body)
     response.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(json))
   })
   await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
   servers.push(server)
-  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, posted }
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, posted, statuses }
 }
 const servers: Server[] = []
 afterEach(() => {
@@ -2522,6 +2525,9 @@ it("delivers another Ultimate's message to @ultimate only, labelled as it, once 
   expect(messages.filter((m) => m.from === 'remote')).toMatchObject([
     { id, to: ROOT_CONVERSATION_ID, reply: true, remote: { ...from, key: 'k1' } },
   ])
+  // The sender learns that it arrived.
+  await until(() => other.statuses.length === 1)
+  expect(other.statuses[0]).toEqual({ key: 'k1', delivered: true })
   // Only @ultimate's own conversation got it, and it reads who sent it, never the user.
   expect(f.observed.filter((text) => text.includes('Start a branch that adds X'))).toHaveLength(1)
   const delivered = f.observed.find((text) => text.includes('Start a branch'))!
@@ -2543,6 +2549,53 @@ it("delivers another Ultimate's message to @ultimate only, labelled as it, once 
   )
   expect((await f.log())!.messages.find((m) => m.from === 'remote')!.state).toBe('answered')
 })
+// On 23 Nov four Ultimates on a stale core took tells and failed every delivery ("agent is not a function"), while
+// the senders showed them delivered for a day.
+it('shows a tell queued until the target reports its delivery, and fails it when that delivery failed', async () => {
+  const sender = await otherUltimate(() => [200, { result: 1 }])
+  const target = await remoteFixture(sender.url)
+  const harness = target.opened.harness
+  const conversation = harness.conversation.bind(harness)
+  harness.conversation = async (...args: Parameters<typeof conversation>) => {
+    const handle = await conversation(...args)
+    return (
+      handle &&
+      Object.assign(Object.create(handle), {
+        submit: () => Promise.reject(new TypeError('agent is not a function')),
+      })
+    )
+  }
+  await actions.remote({ key: 'stale', text: 'Restart', reply: true, from }, target.action())
+  await until(() => sender.statuses.length === 1)
+  const report = sender.statuses[0] as { error: string }
+  expect(report).toMatchObject({ key: 'stale', delivered: false })
+  expect(report.error).toContain('agent is not a function')
+
+  const other = await otherUltimate(() => [200, { result: 41 }])
+  const f = await remoteFixture(other.url)
+  const told = await f
+    .service()
+    .tell(ROOT_CONVERSATION_ID, { project: 'poe2-rust', text: 'Restart' }, context)
+  expect(told.queued).toBe(41)
+  expect((await f.log())!.messages.find((m) => m.id === told.message)).toMatchObject({
+    state: 'sent',
+    remote: { id: 41 },
+  })
+  const key = (other.posted[0].body as { key: string }).key
+  const failure = { key, delivered: false, error: report.error }
+  const reply = await actions.remoteStatus(failure, f.action())
+  expect(await actions.remoteStatus(failure, f.action())).toBe(told.message)
+  expect((await f.log())!.messages.find((m) => m.id === told.message)).toMatchObject({
+    state: 'failed',
+    error: report.error,
+  })
+  await until(async () => (await replies(f)).length === 1)
+  expect((await f.log())!.messages.find((m) => m.id === reply)).toMatchObject({
+    from: 'remote',
+    re: told.message,
+    text: report.error,
+  })
+})
 it("returns another Ultimate's answer as a reply once, and refuses a reply to a reply", async () => {
   const other = await otherUltimate((path) =>
     path.endsWith('/remote') ? [200, { result: 41 }] : [500, { error: 'unexpected' }],
@@ -2551,7 +2604,7 @@ it("returns another Ultimate's answer as a reply once, and refuses a reply to a 
   const told = await f
     .service()
     .tell(ROOT_CONVERSATION_ID, { project: 'poe2-rust', text: 'Did the landing work?' }, context)
-  expect(told.delivered).toBe(41)
+  expect(told.queued).toBe(41)
   const key = (other.posted[0].body as { key: string }).key
   expect(other.posted[0].body).toMatchObject({
     text: 'Did the landing work?',
@@ -2620,6 +2673,28 @@ it('keeps an answer that arrived before the post to another Ultimate failed', as
   await until(async () => (await replies(f)).length === 1)
   await f.opened.root.waitForIdle(context)
 })
+it('keeps waiting for the answer when the target reported delivery before the post failed', async () => {
+  let f!: Awaited<ReturnType<typeof remoteFixture>>
+  const server = createServer(async (request) => {
+    let raw = ''
+    for await (const chunk of request) raw += String(chunk)
+    const { key } = (JSON.parse(raw) as { args: { key: string } }).args
+    await actions.remoteStatus({ key, delivered: true }, f.action())
+    request.socket.destroy()
+  })
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done))
+  servers.push(server)
+  f = await remoteFixture(`http://127.0.0.1:${(server.address() as AddressInfo).port}`)
+  await expect(
+    f.service().tell(ROOT_CONVERSATION_ID, { project: 'poe2-rust', text: 'Run it' }, context),
+  ).rejects.toThrow('poe2-rust on this machine did not answer')
+  const told = (await f.log())!.messages.find((m) => m.to === 'remote')!
+  expect(told).toMatchObject({ state: 'delivered' })
+  expect(told.error).toBeUndefined()
+  await actions.remoteReply({ key: told.remote!.key, text: 'Done', failed: false }, f.action())
+  await until(async () => (await replies(f)).length === 1)
+  expect((await f.log())!.messages.find((m) => m.id === told.id)!.state).toBe('answered')
+})
 it('takes a late answer after the log dropped its message, and keys named like object properties', async () => {
   const other = await otherUltimate(() => [200, { result: 3 }])
   const f = await remoteFixture(other.url)
@@ -2646,7 +2721,7 @@ it('takes a late answer after the log dropped its message, and keys named like o
   expect(typeof id).toBe('number')
   expect((await f.log())!.messages.find((m) => m.id === id)).toMatchObject({ from: 'remote' })
 })
-it('posts a tell a crash cut off once, after the restart, and settles it delivered', async () => {
+it('posts a tell a crash cut off once, after the restart, and settles it queued', async () => {
   // Before the post was a task, a crash between logging and posting left the message `sent` with nothing to post it.
   const keys: string[] = []
   const firstPostHangs = gate()
@@ -2673,7 +2748,7 @@ it('posts a tell a crash cut off once, after the restart, and settles it deliver
   await f.open()
   f.opened.harness.resume()
   await until(async () =>
-    (await f.log())!.messages.some((m) => m.to === 'remote' && m.state === 'delivered'),
+    (await f.log())!.messages.some((m) => m.to === 'remote' && m.remote?.id === 12),
   )
   firstPostHangs.release()
   expect(keys).toHaveLength(2)
@@ -3305,7 +3380,7 @@ it('fails a tell at once when the other Ultimate has no route back for its answe
   )
   expect((await asker.log())!.messages.at(-1)).toMatchObject({ reply: true, state: 'failed' })
   expect((await replier.log())?.messages ?? []).toEqual([])
-  expect((await tell(false)).delivered).toBeGreaterThan(0)
+  expect((await tell(false)).queued).toBeGreaterThan(0)
 })
 it('accepts a retried request that another copy already took, though the route back is gone', async () => {
   const f = await remoteFixture()

@@ -614,6 +614,23 @@ describe('conversation state', () => {
     ).toEqual([])
   })
 
+  it('lists a one-way tell the other Ultimate took as queued, not delivering', () => {
+    const remote = { project: 'other', machine: 'm', key: 'k' }
+    const { messages } = messagesLog(
+      { from: 3 as ConversationId, to: 'remote', reply: false, state: 'sent', remote },
+      {
+        from: 3 as ConversationId,
+        to: 'remote',
+        reply: false,
+        state: 'sent',
+        remote: { ...remote, id: 9 },
+      },
+    )
+    const open = openMessages(messages, 3)
+    expect(open.delivering.map((m) => m.id)).toEqual([1])
+    expect(open.queued.map((m) => m.id)).toEqual([2])
+  })
+
   it('awaits remote replies and timers, not just the primary', () => {
     const remote = messagesLog({
       from: 2 as ConversationId,
