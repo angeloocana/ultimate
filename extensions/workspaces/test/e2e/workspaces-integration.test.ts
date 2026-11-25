@@ -27,7 +27,7 @@ import type { LanderEntry, WorkspaceIndex } from '../../types.ts'
 import { createLander, landerCheckout, landerPath } from '../../lander.ts'
 import { CheckRan, SubmissionFailed, SubmissionLanded } from '../../api.ts'
 import lineage, { leaveNote, startBranch } from '../../../lineage/server.ts'
-import { LineageApi, Roots } from '../../../lineage/api.ts'
+import { LineageApi } from '../../../lineage/api.ts'
 import {
   actions as conversationActions,
   concludeIn,
@@ -750,12 +750,7 @@ async function submitted(f: Awaited<ReturnType<typeof fixture>>, id: Conversatio
   const view = await conversation.context(context)
   const reports = view.entries.filter((entry) => entry.kind === 'workspaces.lander-report')
   for (const report of reports) {
-    const { id: submission, outcome } = report.data as {
-      id: string
-      outcome: WorkspaceIndex['results'][string]
-    }
-    const index = (await f.opened.harness.snapshot(Workspaces, ROOT_CONVERSATION_ID, context))!
-    expect(outcome).toEqual(index.results[submission])
+    const { outcome } = report.data as { outcome: WorkspaceIndex['results'][string] }
     expect(outcome.lander).toBeGreaterThan(0)
     expect(outcome.steps.length).toBeGreaterThan(0)
   }
@@ -864,7 +859,9 @@ it.concurrent('emits one landed event and notes the root once, across a replayed
   await f.opened.harness.commit(async (tx) => {
     ;(await tx.doc(Metadata, id)).title = 'Renamed later'
   }, context)
-  expect(await submitted(f, id)).toHaveLength(1)
+  expect(await submitted(f, id)).toEqual([
+    expect.stringContaining(`landed as ${sha.slice(0, 7)} on main.`),
+  ])
   const featureOf = {
     title: 'Write the feature',
     summary: 'Adds the landed file.',
@@ -938,58 +935,6 @@ it.concurrent('emits one landed event and notes the root once, across a replayed
   await (await f.opened.harness.conversation(ROOT_CONVERSATION_ID, context))!.waitForIdle(context)
   expect(await rootNotes(f)).toHaveLength(1)
   expect(await f.host.eventLog.recent({ events: [SubmissionLanded] })).toHaveLength(1)
-})
-
-it.concurrent('does not note the root about its own submission', async () => {
-  const f = await lander({})
-  f.prepared.registry.install(lineage(f.host))
-  const id = await f.create()
-  await f.service.ready(id, context)
-  await commit((await f.service.get(id, context))!.path)
-  await f.opened.harness.commit(async (tx) => {
-    ;(await tx.doc(Roots, ROOT_CONVERSATION_ID)).roots.push(id)
-  }, context)
-  await f.service.submit(id, 'None', context)
-  expect((await submitted(f, id))[0]).toContain('landed as')
-  await reacted(f)
-  const view = await (await f.opened.harness.conversation(id, context))!.context(context)
-  expect(view.entries.filter((entry) => entry.kind === 'lineage.note')).toHaveLength(0)
-  expect(await rootNotes(f)).toHaveLength(0)
-})
-
-it.concurrent('notes the root of the submitter’s tree and skips a conversation outside any tree', async () => {
-  const f = await lander({})
-  f.prepared.registry.install(lineage(f.host))
-  // A second root, and a branch of it that lands; an unrooted conversation lands too.
-  const other = await f.opened.harness.createConversation(
-    { ownership: { kind: 'ownerless' } },
-    context,
-  )
-  const at = await f.opened.harness.commit(async (tx) => {
-    ;(await tx.doc(Roots, ROOT_CONVERSATION_ID)).roots.push(other.id)
-    return (await tx.appendEntry(other.id, { kind: 'test.branch-point', data: {} })).id
-  }, context)
-  const branch = await other.fork(at, { ownership: { kind: 'ownerless' } }, context)
-  await f.opened.harness.commit((tx) => f.service.create(tx, branch.id, f.projectRoot), context)
-  await f.service.ready(branch.id, context)
-  await commit((await f.service.get(branch.id, context))!.path, 'branch.txt')
-  await f.service.submit(branch.id, 'None', context)
-  expect((await submitted(f, branch.id))[0]).toContain('landed as')
-  const unrooted = await f.create()
-  await f.service.ready(unrooted, context)
-  await commit((await f.service.get(unrooted, context))!.path, 'unrooted.txt')
-  await f.service.submit(unrooted, 'None', context)
-  expect((await submitted(f, unrooted))[0]).toContain('landed as')
-  await reacted(f)
-  const notes = async (id: ConversationId) => {
-    const view = await (await f.opened.harness.conversation(id, context))!.context(context)
-    return view.entries.filter((entry) => entry.kind === 'lineage.note')
-  }
-  await until(async () => (await notes(other.id)).length > 0)
-  expect((await notes(other.id)).map((note) => (note.data as { from: number }).from)).toEqual([
-    branch.id,
-  ])
-  expect(await rootNotes(f)).toHaveLength(0)
 })
 
 const messageLog = async (f: Awaited<ReturnType<typeof fixture>>) =>

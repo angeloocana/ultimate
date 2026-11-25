@@ -22,7 +22,7 @@ afterEach(async () => {
   await app?.close()
 })
 
-async function build(localSetup = true) {
+async function prepareFixture(localSetup = true) {
   const root = await temp('ultimate-automations-')
   const userHome = join(root, 'user')
   const home = join(root, 'project-state')
@@ -33,16 +33,17 @@ async function build(localSetup = true) {
       join(definitions, `${name}.md`),
       `---\nname: ${name}\ndescription: Automation test\nmodel: faux/faux-1\ntools: []\n${name === 'ultimate' ? 'resident: true\n' : ''}---\nKeep answers short.\n`,
     )
-  const options = { ultimateRoot: resolve('.'), projectRoot: root, userHome, home, localSetup }
-  const app = await fauxServer(options)
   return {
     root,
     userHome,
     home,
-    options,
-    app,
+    options: { ultimateRoot: resolve('.'), projectRoot: root, userHome, home, localSetup },
     folder: (id: string) => join(userHome, '.ultimate/automations', basename(home), id),
   }
+}
+async function build(localSetup = true) {
+  const setup = await prepareFixture(localSetup)
+  return { ...setup, app: await fauxServer(setup.options) }
 }
 async function fixture(localSetup = true) {
   const built = await build(localSetup)
@@ -169,7 +170,7 @@ it('delivers FIRE once, investigates exits only in the owning agent, recovers, a
     subscribers: [caller.id],
     script: { state: 'writing', once: true },
   })
-  await script(first.id, 'sleep 2; echo FIRE done')
+  await script(first.id, 'echo FIRE done')
   await invoke('resume', { id: first.id })
   await until(
     async () =>
@@ -430,15 +431,12 @@ it('tells the watcher that a re-armed one-shot refused to watch again when it ex
 })
 
 it("keeps a later chapter's scripts in their own folder, apart from the first chapter's same id", async () => {
-  const first = await fixture()
-  const legacy = first.folder('A1')
+  const { home, userHome, options, folder: firstChapterFolder } = await prepareFixture()
+  const legacy = firstChapterFolder('A1')
   await mkdir(join(legacy, 'state'), { recursive: true })
   await writeFile(join(legacy, 'state/mark'), 'first chapter\n')
-  const { home, userHome } = first
-  await server?.close()
-  server = undefined
   await requestChapter(home, 'next')
-  server = await fauxServer({ ...first.options, home, userHome })
+  server = await fauxServer(options)
   const sub = await create(server)
   expect(sub.id).toBe('A1')
   const folder = join(userHome, '.ultimate/automations', `${basename(home)}@next`, 'A1')
@@ -849,9 +847,7 @@ it('records the exit metadata and event for a successful done one-shot without a
 })
 
 it('sweeps a crashed process pid file even when no automation record exists', async () => {
-  const { app, folder, options } = await fixture()
-  await app.close()
-  server = undefined
+  const { folder, options } = await prepareFixture()
   const child = spawn('sleep', ['60'], { detached: true, stdio: 'ignore' })
   const exited = new Promise<void>((done) => child.once('close', () => done()))
   try {

@@ -2,12 +2,13 @@ import type { Tx, ConversationId, EntryId } from '@earendil-works/pi-durable'
 import { ROOT_CONVERSATION_ID } from '@earendil-works/pi-durable'
 import { expect, it, vi } from 'vitest'
 import { abstract } from '../server.ts'
+import { Roots } from '../api.ts'
 import { SubmissionLanded } from '../../workspaces/api.ts'
 import type { LandedData } from '../../workspaces/api.ts'
 import { emit, EventLog } from '../../../server/events.ts'
 import { context } from '../../../server/harness.ts'
-import { until } from '../../../test/helpers.ts'
-import { branchFrom, fixture, servers, settled } from './lineage-fixture.ts'
+import { seedTally, until } from '../../../test/helpers.ts'
+import { branchFrom, fixture, second, servers, settled } from './lineage-fixture.ts'
 import type { Server } from './lineage-fixture.ts'
 
 const landing = (submission: string, conversationId: number): LandedData => ({
@@ -27,8 +28,10 @@ const landing = (submission: string, conversationId: number): LandedData => ({
 })
 const land = async (server: Server, data: LandedData) =>
   (await server.harness.commit((tx) => emit(tx, SubmissionLanded, data), context)).id
-const notes = async (server: Server) =>
-  (await server.root.context(context)).entries.filter((entry) => entry.kind === 'lineage.note')
+const notes = async (server: Server, id = ROOT_CONVERSATION_ID) =>
+  (await (await server.harness.conversation(id, context))!.context(context)).entries.filter(
+    (entry) => entry.kind === 'lineage.note',
+  )
 /** How far lineage's landing reactor has read the event log. */
 const cursor = async (server: Server) =>
   (await server.harness.snapshot(EventLog, ROOT_CONVERSATION_ID, context))?.cursors[
@@ -77,7 +80,7 @@ it('notes a landing in its tree root once, across a failed attempt and a restart
   expect(await cursor(server)).toBe(before)
 
   // The next landing retries it: each note is written once, the first freezing the open abstract.
-  const second = await land(server, landing('s2', first))
+  const secondLanding = await land(server, landing('s2', first))
   await until(async () => (await notes(server)).length === 2)
   const [one, two] = await notes(server)
   expect(one.data).toEqual({
@@ -99,7 +102,7 @@ it('notes a landing in its tree root once, across a failed attempt and a restart
     abstract: { at: 3, text: 'State: done.' },
   })
   expect((two.data as { sha: string }).sha).toBe('s2abcdef0')
-  await until(async () => (await cursor(server)) >= second)
+  await until(async () => (await cursor(server)) >= secondLanding)
 
   // A restart on the same home catches up from the cursor and writes nothing again.
   spy.mockRestore()
@@ -113,4 +116,28 @@ it('notes a landing in its tree root once, across a failed attempt and a restart
     's2abcdef0',
     's3abcdef0',
   ])
+})
+
+it('notes only the submitter’s tree root, skipping self and unrooted submissions', async () => {
+  const { server } = await fixture()
+  const other = await second(server)
+  const unrooted = await second(server)
+  // Tally notes commit with the reactor cursor, so the absence checks need no delivery wait.
+  await seedTally(server.harness)
+  await seedTally(server.harness, other.id)
+  const at = await server.harness.commit(async (tx) => {
+    ;(await tx.doc(Roots, ROOT_CONVERSATION_ID)).roots.push(other.id)
+    return (await tx.appendEntry(other.id, { kind: 'test.branch-point', data: {} })).id
+  }, context)
+  const branch = await other.fork(at, { ownership: { kind: 'ownerless' } }, context)
+
+  await land(server, landing('self', other.id))
+  await land(server, landing('unrooted', unrooted.id))
+  const last = await land(server, landing('branch', branch.id))
+  await until(async () => (await cursor(server)) >= last)
+
+  expect((await notes(server, other.id)).map((note) => note.data)).toMatchObject([
+    { from: branch.id, submission: 'branch', source: 'lander' },
+  ])
+  expect(await notes(server)).toHaveLength(0)
 })
