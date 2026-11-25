@@ -1,4 +1,8 @@
 import type { ConversationId } from '@earendil-works/pi-durable'
+import type { Nodes } from 'mdast'
+import remarkGfm from 'remark-gfm'
+import remarkParse from 'remark-parse'
+import { unified } from 'unified'
 import { markdownText } from '@/components/markdown/parse.ts'
 import { dueStatus } from '../../lib/calendar-day.ts'
 import { openQuestion } from '../../lib/message-state.ts'
@@ -83,7 +87,7 @@ export const withContext = (context: string, text: string) =>
   text.trim() ? `${context}\n\n${text.trim()}` : context
 
 export const questionContext = (message: Pick<Message, 'id' | 'text'>) =>
-  `About your question #${message.id} (“${markdownText(message.text, true).slice(0, 160)}”), sent from the Inbox. This is not an answer: the question stays open.`
+  `About your question #${message.id} (“${readerText(lead(message.text).title).slice(0, 160)}”), sent from the Inbox. This is not an answer: the question stays open.`
 
 export function selectionAfterChange(
   entries: readonly Anchor[],
@@ -101,6 +105,39 @@ export function selectionAfterChange(
 export const previewUrl = (text: string) =>
   /https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?(?:\/[^\s)<>\]`*]*)?/.exec(text)?.[0]
 
+export function lead(text: string) {
+  const trimmed = text.trimStart()
+  const bold = /^\*\*(.+?)\*\*[:.]?\s*/.exec(trimmed)
+  if (bold) return { title: bold[1].trim(), body: trimmed.slice(bold[0].length) }
+  const [first = '', ...rest] = trimmed.split('\n')
+  return {
+    title: first.replace(/^(?:\s*(?:#{1,6}(?=\s)|>|[-*+](?=\s)))+\s*/, '').trim(),
+    body: rest.join('\n').trim(),
+  }
+}
+
+export const asOneParagraph = (title: string) =>
+  title
+    .replace(/^(\d+)([.)])(?=\s|$)/, '$1\\$2')
+    .replace(
+      /^(?:#{1,6}(?=\s|$)|[-+*](?=\s|$)|[-*_](?=[-*_\s]*$)|>|[`~](?=[`~]{2})|\[(?=[^\]]*\]:))/,
+      '\\$&',
+    )
+
+const inline = unified().use(remarkParse).use(remarkGfm)
+const textOf = (node: Nodes): string =>
+  node.type === 'html'
+    ? ''
+    : node.type === 'break'
+      ? ' '
+      : 'value' in node
+        ? node.value
+        : 'children' in node
+          ? node.children.map(textOf).join('')
+          : ''
+
+export const readerText = (title: string) => textOf(inline.parse(asOneParagraph(title))).trim()
+
 export const tagOf = (entry: Entry) =>
   entry.message ? (previewUrl(entry.message.text) ? 'preview' : 'question') : entry.item.tag
 
@@ -117,7 +154,7 @@ export function toRow(entry: Entry, today: string): Row {
     at,
     ...senderOf(entry),
     tag: tagOf(entry),
-    title: message ? markdownText(message.text, true) : item.title,
+    title: readerText(message ? lead(message.text).title : item.title),
     gist: message ? markdownText(message.questions?.[0]?.text ?? '') : item.gist,
     more: Math.max(0, (message?.questions?.length ?? 0) - 1),
     message: message?.id,
@@ -138,7 +175,7 @@ export function answeredToday(messages: readonly Message[], now: number): Answer
               ...sender(m.from),
               id: m.id,
               at: reply.at,
-              title: markdownText(m.text, true),
+              title: readerText(lead(m.text).title),
             },
           ]
         : []

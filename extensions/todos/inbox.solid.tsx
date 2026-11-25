@@ -140,7 +140,7 @@ export function InboxTodoControls() {
     <div class="flex shrink-0 items-center gap-0.5">
       <Button
         class="h-9 gap-1 px-2"
-        aria-label="Open add to-do form"
+        aria-label="New to-do"
         onClick={() => {
           returnFocus = addButton
           setView('add')

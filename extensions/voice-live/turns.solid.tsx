@@ -1,5 +1,13 @@
 import type { ConversationId, EntryRecord } from '@earendil-works/pi-durable'
-import { Check, ChevronRight, CornerDownRight, Mic, Play, Scissors } from '@lucide/solid'
+import {
+  Check,
+  ChevronRight,
+  CornerDownRight,
+  MessageCircleReply,
+  Mic,
+  Play,
+  Scissors,
+} from '@lucide/solid'
 import { createEffect, createMemo, createSignal, For, onCleanup, onSettled, Show } from 'solid-js'
 import { Message, MessageContent } from '@/components/ai/message.solid.tsx'
 import { Shimmer } from '@/components/ai/shimmer.solid.tsx'
@@ -24,6 +32,7 @@ import {
   UserText,
 } from '@/sdk/solid'
 import { every, nextTurn } from '../../lib/timers.ts'
+import { capture, drawWave } from '../dictation/ui.solid.tsx'
 import {
   dock,
   playerState,
@@ -34,7 +43,6 @@ import {
   useTurns,
 } from './dock.solid.tsx'
 import type { TurnView } from './dock.solid.tsx'
-import { drawWave } from './recorder.ts'
 import { UiAnswerAction, UiClaimAction, VoiceForkDoc, VoiceUiDoc } from './refs.ts'
 import type { VoiceFork, VoiceUiCall } from './refs.ts'
 import { splitReply } from './speech.ts'
@@ -59,7 +67,7 @@ export function Waveform(props: { envelope?: readonly number[]; live?: boolean; 
   )
   onSettled(() => {
     if (!props.live) return undefined
-    return dock.mic.onLevel(() => canvas && drawWave(canvas, dock.mic.levels(), color(), true))
+    return capture.onLevel(() => canvas && drawWave(canvas, capture.levels(), color(), true))
   })
   return <canvas aria-hidden="true" class={props.class} height={56} ref={canvas} width={440} />
 }
@@ -186,6 +194,11 @@ function YourTurn(props: { turn: TurnView; fork: VoiceFork | null | undefined })
             <Show when={cutIn()}>
               <span class="inline-flex items-center gap-1 text-brand">
                 <CornerDownRight class="size-3" /> cut in
+              </span>
+            </Show>
+            <Show when={data().answered}>
+              <span class="inline-flex shrink-0 items-center gap-1 text-brand">
+                <MessageCircleReply class="size-3" /> sent as your answer
               </span>
             </Show>
             <Show when={data().audio}>

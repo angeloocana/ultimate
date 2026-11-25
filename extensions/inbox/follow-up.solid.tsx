@@ -9,7 +9,7 @@ import {
 import { Match, Show, Switch, createSignal, onSettled } from 'solid-js'
 import { Button } from '@/components/ui/button.solid.tsx'
 import {
-  PromptComposer,
+  PromptBox,
   ROOT,
   api,
   cn,
@@ -166,10 +166,10 @@ function Composer(props: {
   })
   return (
     <div ref={wrap}>
-      <PromptComposer
-        draftKey={props.draftKey}
-        label={props.label}
-        onSend={props.onSend}
+      <PromptBox
+        draft={props.draftKey}
+        name={props.label}
+        onSubmit={({ text, images }) => props.onSend(text, images)}
         placeholder={props.placeholder}
       />
     </div>

@@ -56,6 +56,7 @@ export interface TraceQuery {
   trace?: string
   conversation?: ConversationId
   since?: IsoTimestamp
+  until?: IsoTimestamp
   kinds?: CallKind[]
   errors?: boolean
   limit?: number
@@ -388,8 +389,14 @@ CREATE INDEX IF NOT EXISTS calls_at ON calls (at);`
     },
     reader: {
       query(query: TraceQuery = {}): CallRow[] {
-        const since = query.since === undefined ? undefined : Date.parse(query.since)
-        if (Number.isNaN(since)) throw new Error(`Invalid since: ${query.since}`)
+        const parseTimestamp = (value: IsoTimestamp | undefined, name: string) => {
+          if (value === undefined) return undefined
+          const parsed = typeof value === 'string' ? Date.parse(value) : Number.NaN
+          if (Number.isNaN(parsed)) throw new Error(`Invalid ${name}: ${value}`)
+          return parsed
+        }
+        const since = parseTimestamp(query.since, 'since')
+        const until = parseTimestamp(query.until, 'until')
         const filters = [
           ['trace', query.trace],
           ['conversation', query.conversation],
@@ -399,6 +406,7 @@ CREATE INDEX IF NOT EXISTS calls_at ON calls (at);`
             value === undefined ? [] : [{ sql: `${column} = ?`, values: [value] }],
         )
         if (since !== undefined) where.push({ sql: 'at > ?', values: [since] })
+        if (until !== undefined) where.push({ sql: 'at < ?', values: [until] })
         if (query.kinds?.length)
           where.push({
             sql: `kind IN (${query.kinds.map(() => '?').join(', ')})`,
@@ -406,11 +414,13 @@ CREATE INDEX IF NOT EXISTS calls_at ON calls (at);`
           })
         if (query.errors) where.push({ sql: 'ok = 0', values: [] })
         const limit = Math.min(Math.max(1, Math.trunc(Number(query.limit) || 100)), 1000)
-        return select(
-          where.length ? 'WHERE ' + where.map((filter) => filter.sql).join(' AND ') : '',
-          `at DESC, rowid DESC LIMIT ${limit}`,
-          ...where.flatMap((filter) => filter.values),
-        ).toReversed()
+        const clause = where.length
+          ? 'WHERE ' + where.map((filter) => filter.sql).join(' AND ')
+          : ''
+        const values = where.flatMap((filter) => filter.values)
+        if (since !== undefined)
+          return select(clause, `at ASC, rowid ASC LIMIT ${limit}`, ...values)
+        return select(clause, `at DESC, rowid DESC LIMIT ${limit}`, ...values).toReversed()
       },
       page(query: {
         before?: ExclusiveCallWriteSequence

@@ -1,5 +1,6 @@
 import { ArrowLeft, ExternalLink, GitBranch } from '@lucide/solid'
 import { createMemo, Show } from 'solid-js'
+import { Markdown } from '@/components/markdown/markdown.solid.tsx'
 import { Button } from '@/components/ui/button.solid.tsx'
 import {
   Provided,
@@ -17,6 +18,8 @@ import { FollowUp } from './follow-up.solid.tsx'
 import {
   WAIT_WARNING_AFTER_MS,
   amber,
+  asOneParagraph,
+  lead,
   previewUrl,
   questionContext,
   senderOf,
@@ -30,6 +33,7 @@ export function Reading(props: { entry: Entry; now: number; phone: boolean; onBa
     const from = message()?.from
     return typeof from === 'number' ? from : undefined
   }
+  const text = createMemo(() => (message() ? lead(message()!.text) : undefined))
   const preview = createMemo(() => message() && previewUrl(message()!.text))
   const images = createMemo(() => {
     const item = message()
@@ -96,17 +100,16 @@ export function Reading(props: { entry: Entry; now: number; phone: boolean; onBa
               </time>
             </span>
           </header>
-          <Show
-            when={message()}
-            fallback={
-              <h2 class="mt-3 text-[17px] leading-7 font-semibold tracking-[-0.01em]">
-                {props.entry.item?.heading?.() ?? props.entry.item?.title}
-              </h2>
-            }
-          >
-            {(question) => (
-              <Body class="mt-3 px-0 py-0 text-[15px] leading-6" text={question().text} />
+          <h2 class="mt-3 text-[17px] leading-7 font-semibold tracking-[-0.01em]">
+            {props.entry.item?.heading?.() ?? (
+              <Markdown
+                text={asOneParagraph(text()?.title ?? props.entry.item?.title ?? '')}
+                without={['img']}
+              />
             )}
+          </h2>
+          <Show when={text()?.body}>
+            {(body) => <Body class="mt-1 px-0 py-0 text-[15px] leading-6" text={body()} />}
           </Show>
           <Show when={images()}>
             {(image) => (

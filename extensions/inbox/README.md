@@ -10,24 +10,24 @@ stops listing it.
 Another extension puts its own things to do in the Inbox by providing the `InboxItems` point from its
 `web.solid.tsx`: `provide(InboxItems, () => items)`, where `items` is an accessor of
 `{ key, at, conversation?, tag, title, heading?, gist?, priority?, due?, pane }[]`. `key` is unique across providers
-(`shell:12`), `at` is when it started waiting in epoch milliseconds, and `tag` is the row's kind tag. `pane` renders the
-reading pane's content below the title; `heading` can render the title there without making the list row interactive.
-With `conversation` the row names it and the pane offers **Open in branch**.
-`priority` is `high`, `normal` (the default for sorting) or `low`; `due` is a local calendar date (`YYYY-MM-DD`).
-The sidebar reads the merged, age-ordered `Waiting` from `ui.solid.tsx`. Providers return `undefined` until loaded and
-`[]` when loaded but empty. The Inbox waits for its sources before advancing past a missing selection. A provider
-that throws is left out behind its inline error card. A question's key is `message:<id>`.
+(`shell:12`), `at` is when it started waiting in epoch milliseconds, and `tag` is the row's kind tag. `title` is one
+line of inline Markdown, shown without images in the pane and as plain text in the list. `heading` can render a
+custom title in the pane; `pane` renders the content below it. With `conversation` the row names it and the pane
+offers **Open in branch**. `priority` is `high`, `normal` (the default for sorting) or `low`; `due` is a local date
+(`YYYY-MM-DD`). The sidebar and To-dos' **For you** row read the merged, age-ordered `Waiting` from `ui.solid.tsx`.
+Providers return `undefined` until loaded and `[]` when loaded but empty. The Inbox waits for its sources before
+advancing past a missing selection. A provider that throws is left out behind its inline error card. A question's
+key is `message:<id>`.
 
 ## Surface (`web.solid.tsx`)
 
 - **List**: one row per item, the asking branch's feature chip and `#id` as the sidebar draws them, a `preview` tag
-  when the text links to a local preview (`http://127.0.0.1:…` or `localhost`), else `question`; the start of the
-  message as its title, its first question as the gist, and how long it has waited, amber past an hour. Rows show
-  explicit priority and **Today** or **Overdue** when applicable. The list puts overdue items first, then items due
-  today, then the rest; within each group it sorts by priority, then age, then key. Questions have no due date or
-  priority label. Titles and gists show Markdown as plain preview text; tapping the row opens the full message.
-- **Reading pane** for the selected item: the whole message in the transcript's Markdown renderer (including the
-  first line and links), its forwarded images (`MessageImages`), **Open preview** (a new tab) when it links one,
+  when the text links to a local preview (`http://127.0.0.1:…` or `localhost`), else `question`; the message's bold
+  lead or first line as its title, its first question as the gist, and how long it has waited, amber past an hour.
+  Rows show explicit priority and **Today** or **Overdue** when applicable. Overdue items come first, then items due
+  today, then the rest; each group sorts by priority, then age, then key. Titles and gists show Markdown as plain text.
+- **Reading pane** for the selected item: a title with inline Markdown and working links (no images in the title),
+  the rest of the text (`Body`), forwarded images (`MessageImages`), **Open preview** (a new tab) when it links one,
   **Open in branch #id** (`messages:open {conversation, message}`), and the answer card (`MessageQuestions`). An
   extension providing `QuestionPane` (`ui.solid.tsx`) may take a question's pane over: side-chat shows the question's
   side chat there while it is in front.

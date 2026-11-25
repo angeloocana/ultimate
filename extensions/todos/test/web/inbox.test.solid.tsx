@@ -176,7 +176,7 @@ it('adds, edits, acts on and follows up Inbox to-dos as the agent that pressed t
   }
 
   await expectDistinctAgentNames(agent)
-  await press('Open add to-do form')
+  await press('New to-do')
   await expectDistinctAgentNames(agent)
   await set('To-do text', 'textarea', 'Ship it')
   await set('To-do owner', 'segmented-control', 'ultimate')
@@ -195,7 +195,7 @@ it('adds, edits, acts on and follows up Inbox to-dos as the agent that pressed t
   expect(harness.actions.some(({ name }) => name === 'submitFollowUp')).toBe(false)
   await set('Prompt for @ultimate', 'textarea', 'Which cert store?')
   const prompt = () =>
-    document.querySelector<HTMLTextAreaElement>('[data-ui="prompt-composer"] textarea')?.value
+    document.querySelector<HTMLTextAreaElement>('[data-follow-up="todo:3"] textarea')?.value
   await showChapter('/project/chapters/new/state.sqlite', 2)
   expect(prompt()).toBe('')
   await showChapter('/project/state.sqlite', 3)

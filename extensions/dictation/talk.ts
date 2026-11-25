@@ -12,36 +12,52 @@ export function createTalk(talk: {
   talking: () => boolean
   press: () => Promise<void>
   release: () => Promise<void>
-  matches: (event: KeyboardEvent) => boolean
-  wake: () => void
+  cancel: () => Promise<void>
+  overCancel: (event: PointerEvent) => boolean
+  matches?: (event: KeyboardEvent) => boolean
 }) {
   const start = () => onThisPage(talk.tap() && talk.talking() ? talk.release() : talk.press())
   const stop = () => {
     if (!talk.tap()) onThisPage(talk.release())
   }
   let pointer = false
-  const letGoPointer = () => {
+  let held: string | undefined
+  let letGo: Cancel | undefined
+  const reset = () => {
+    pointer = false
+    held = undefined
+    letGo?.()
+    letGo = undefined
+  }
+  const cancel = () => {
+    if (!talk.talking()) return false
+    reset()
+    onThisPage(talk.cancel())
+    return true
+  }
+  const letGoPointer = (event: PointerEvent) => {
     if (!pointer) return
+    if (talk.overCancel(event) && cancel()) return
     pointer = false
     stop()
   }
-  let held: string | undefined
-  let letGo: Cancel | undefined
   return {
+    cancel,
+    reset,
     pointer: {
       onPointerDown: (event: PointerEvent) => {
         event.preventDefault()
         pointer = true
         start()
       },
+      onPointerCancel: letGoPointer,
       onPointerLeave: letGoPointer,
       onPointerUp: letGoPointer,
     },
     keyDown(event: KeyboardEvent) {
       if (talk.tap()) {
-        if (!talk.matches(event)) return false
+        if (!talk.matches?.(event)) return false
         if (event.repeat) return true
-        talk.wake()
         start()
         return true
       }
@@ -51,15 +67,9 @@ export function createTalk(talk: {
         letGo = undefined
         return true
       }
-      if (event.repeat || !talk.matches(event)) return false
+      if (event.repeat || !talk.matches?.(event)) return false
       held = event.code
-      talk.wake()
-      onThisPage(
-        talk.press().then(() => {
-          if (held === undefined) return talk.release()
-          return undefined
-        }),
-      )
+      onThisPage(talk.press())
       return true
     },
     keyUp(event: KeyboardEvent) {

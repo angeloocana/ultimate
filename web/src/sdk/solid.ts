@@ -8,6 +8,7 @@ export {
   defineWebExtension,
   docRef,
   events,
+  holdReload,
   notify,
   provide,
   ROOT,
@@ -21,7 +22,7 @@ export {
 } from './hooks.ts'
 export {
   closePanel,
-  composerImages,
+  composerDraft,
   covered,
   fillComposer,
   focusComposer,
@@ -70,6 +71,7 @@ export {
   ConversationKind,
   ConversationScope,
   createTranscriptFrame,
+  Dictation,
   documentItems,
   EmptyTranscript,
   entryRenderers,
@@ -82,6 +84,7 @@ export {
   messageItems,
   MessageReference,
   ParkedRuns,
+  PromptRecorder,
   provisionsOf,
   RunStart,
   toolLine,
@@ -120,6 +123,11 @@ export type {
   CompactRow,
   CompactSummaryProps,
   ComposerTarget,
+  DictationSink,
+  DictationTake,
+  PromptBoxProps,
+  PromptInput,
+  UploadSource,
   ConversationState,
   ConversationSummary,
   DocumentItem,
@@ -197,8 +205,6 @@ export { resumed } from './resume.ts'
 export { scopeOf } from './scope.ts'
 
 export { Card } from '../app/card.solid.tsx'
-/** The composer editor and attachments for a directed prompt, with a namespaced draft separate from conversations. */
-export { PromptComposer } from '../app/composer.solid.tsx'
 /** A card that folds to one quiet line in compact mode; `label` names its button. The reader's choice survives reloads. */
 export { Fold, useFold } from '../app/fold.solid.tsx'
 export { MessageActions } from '../app/message-actions.solid.tsx'
@@ -216,6 +222,12 @@ export { Header } from '../app/header.solid.tsx'
 export { Conversation, Dock, Panels, Sidebar, StatusLine } from '../app/shell.solid.tsx'
 /** The prompt box of the scoped or shown conversation alone, without its transcript; wrap it in `ComposerRedirect` to send elsewhere. */
 export { Composer } from '../app/composer.solid.tsx'
+/**
+ * A prompt box on its own: text, paste and drop, attachment chips, dictation and the record slot, with Keel's hairline.
+ * `draft` keys its durable draft, `onSubmit(input)` sends it (a rejection keeps the draft and shows the error), `accepts`
+ * picks inline images and uploaded files.
+ */
+export { PromptBox } from '../app/prompt-box.solid.tsx'
 /** An extension's failure, inline or as a block with a report button, as the shell shows it. */
 export { ErrorCard } from '../app/error-card.solid.tsx'
 /** A contribution's `icon` (a panel's, a surface's) with `class`. */

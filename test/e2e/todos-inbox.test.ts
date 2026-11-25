@@ -61,7 +61,7 @@ it('triages questions and to-dos together on a phone, with agent and completed t
   page.setDefaultTimeout(10_000)
   const rows = page.locator('[data-inbox-row]')
   await rows.filter({ hasText: 'Choose a color' }).waitFor()
-  await page.getByRole('button', { name: 'Open add to-do form', exact: true }).tap()
+  await page.getByRole('button', { name: 'New to-do', exact: true }).tap()
   const add = page.getByRole('dialog', { name: 'Add to-do' })
   const clinic = 'https://example.com/clinic'
   await add.getByRole('textbox', { name: 'To-do text' }).fill(`Call the clinic (${clinic})`)
