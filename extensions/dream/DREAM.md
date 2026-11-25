@@ -57,6 +57,10 @@ small; skip what is risky or vague), with one line on why. For each approved one
 
 A codified memory (`retire` on the proposal) stays until its branch lands; then delete or update it with `remember`.
 
+A dream and its follow-up branches must not delete or replace shared resources under `~/.ultimate/` (such as skills,
+`bin` scripts or agents) without the user's explicit approval. Before asking, check which projects' automations or
+instructions use the resource and name those dependents in the proposal.
+
 ### Prepare the fresh chapter
 
 A fresh chapter starts lean: the new @ultimate wakes from your handover, the memory and the open work instead of
