@@ -8,7 +8,8 @@ import { InboxItems } from './points.ts'
 
 /**
  * Everything that waits on the user, oldest first: open questions and other extensions' items. `failures` holds the
- * inline error card of each provider that throws.
+ * inline error card of each provider that throws; `ready` turns true once the open questions and every item provider
+ * have arrived.
  */
 export function Waiting() {
   const log = useDocOf(() => ROOT, MessagesDoc)

@@ -174,6 +174,8 @@ export interface ComposerTarget {
    * cold voice session): the composer then shows none of the scoped conversation's run, queue, toolbar or status.
    */
   draft?: string
+  /** With `draft`, the controls at the start of its prompt box's row, in place of the conversation's toolbar. */
+  toolbar?: JSX.Element
   /** `false` hides dictation; a sink replaces the box's default transcription and insertion. */
   dictation?: false | DictationSink
 }
@@ -317,6 +319,14 @@ export const ConversationKind = definePoint<ConversationSummary | undefined, str
   'ultimate.conversationKind',
 )
 /**
+ * Who speaks a stored final answer, shown above it in place of the core's "Final answer" heading (`messages` provides
+ * it: a standing agent's mark and title, otherwise the conversation's model family). Each provider gets the rendering
+ * so far as `core` and returns it, wraps it or replaces it.
+ */
+export const AnswerSpeaker = definePoint<{ entry: EntryRecord; core: JSX.Element }, JSX.Element>(
+  'ultimate.answerSpeaker',
+)
+/**
  * What conversation `conversation`'s composer says while it is empty (`conversations` provides it: "Message Coach…" for
  * a standing agent with `title: Coach`). Every provider is asked and the last that answers wins, so one naming its own
  * conversations leaves another's. Undefined leaves the earlier providers' answer, the core's text while none answers;
@@ -362,7 +372,8 @@ export type UploadSource = 'paste' | 'drop' | 'file' | 'recording'
  * (`attachments`). `upload` stores the file, may report a short `status` and a `progress` from 0 to 1 while it
  * works, stops when `signal` aborts (the chip was removed), and resolves with what the prompt references: `path`, the
  * prompt `line` when the provider writes its own (otherwise the standard attached-file line), the chip's `note`, and
- * an `image` URL the chip shows instead of its file icon (a video's first frame).
+ * an `image` URL the chip shows instead of its file icon (a video's first frame). `preview`, called while a sent
+ * message's chip renders, reads the image for a `line` the provider wrote, so sent chips show it too.
  * Files up to `maxBytes` attach, and the host keeps them `keptMs`. Without a provider only images attach.
  */
 export const FileUpload = definePoint<
@@ -378,6 +389,7 @@ export const FileUpload = definePoint<
           signal: AbortSignal
         },
       ) => Promise<{ path: string; line?: string; note?: string; image?: string }>
+      preview?: (line: string) => Accessor<string | undefined>
       maxBytes: number
       keptMs: number
     }
@@ -419,6 +431,11 @@ export const Dictation = definePoint<
   },
   JSX.Element
 >('ultimate.dictation')
+/**
+ * How the talk shortcut is pressed, gesture and keys (`dictation` provides it: `tap Ctrl+Shift+Space`), for the main
+ * composer's placeholder. While nothing provides it, the placeholder leaves it out.
+ */
+export const DictationShortcut = definePoint<null, string | undefined>('ultimate.dictationShortcut')
 /**
  * What a prompt box's record control gets, beside its attach button: `draft` is the box's draft key (boxes showing one
  * conversation share it; a box without one is keyed by its `name`, so give such boxes distinct names), `attach` adds recorded files to that box like a drop (as `source`, `recording` by default; a
@@ -555,7 +572,7 @@ export interface WebExtension {
   messageActions?: readonly Component<{ entry: EntryRecord; text: string }>[]
   /** Readouts on the hover action row on stored messages, before its time, in discovery order. */
   messageDetails?: readonly Component<{ entry: EntryRecord }>[]
-  /** Inline labels after the Final answer heading on stored assistant messages, and above an answer cut off at the output limit. */
+  /** Inline labels after a final answer's speaker on stored assistant messages, and above an answer cut off at the output limit. */
   answerLabels?: readonly Component<{ entry: EntryRecord }>[]
   /** Overlays on the user's bubble, rendered after it inside a positioned box exactly its size (`absolute inset-0`). */
   userBubble?: readonly Component<{ entry: EntryRecord }>[]

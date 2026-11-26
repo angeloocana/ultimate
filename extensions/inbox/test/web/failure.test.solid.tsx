@@ -23,6 +23,7 @@ import { InboxSidebar, WaitingBadge } from '../../surface.solid.tsx'
 it('shows a failing item provider inline on the Inbox badge and sidebar row', async () => {
   vi.spyOn(console, 'error').mockImplementation(() => {})
   await registry.setLoaders({
+    'extensions/inbox/web.solid.tsx': async () => ({ default: {} }),
     'extensions/broken/web.solid.tsx': async () => ({
       default: {
         provides: [

@@ -13,8 +13,12 @@ import { AgentDoc, InboxDoc, ROOT_CONVERSATION_ID } from '@earendil-works/pi-dur
 import type { EntryId } from '@earendil-works/pi-durable'
 import { Branch } from '../../lineage/api.ts'
 import { context } from '../../../server/harness.ts'
+import { Family } from '../../models/api.ts'
 import { Fork, Session, Ui } from '../server.ts'
 import { fauxServer, post, sourceCopy, temp, until } from '../../../test/helpers.ts'
+import { EventFeed } from '../../../server/events.ts'
+import { ChangedEvent } from '../../../shared/events.ts'
+import { SOURCE_HEADER } from '../../../shared/protocol.ts'
 import { writeSecret } from '../../secrets/store.ts'
 
 let ultimateRoot: string
@@ -133,6 +137,8 @@ it('forks @ultimate once per session, hears the newest recording and keeps histo
   expect(first.route).toBe('audio')
   const fork = f.requests.at(-1)!
   expect(fork.model).toBe('gemini-faux')
+  expect(await f.server.harness.snapshot(Family, f.main, context)).toEqual({ name: 'default' })
+  expect(await f.server.harness.snapshot(Family, first.id, context)).toEqual({ name: null })
   expect(JSON.stringify(fork.messages)).toContain('MAIN HISTORY')
   expect(JSON.stringify(fork.messages)).toContain('You are Ultimate in voice mode')
   expect(userParts(fork.messages.at(-1))).toContainEqual({
@@ -374,6 +380,51 @@ it('a recording or turn sent for a session that ended is refused and opens no ne
   ).toBeUndefined()
 })
 
+it('a pick in the cold prompt box is what status, the setup card and the next session use', async () => {
+  const f = await fixture()
+  const status = async () => (await f.action('status', null)).data.result
+  expect(await status()).toMatchObject({ model: 'faux/gemini-faux', thinking: 'low' })
+  const picked = await f.action('pick', {
+    model: { provider: 'faux', modelId: 'main-faux' },
+    thinkingLevel: 'high',
+  })
+  expect([picked.status, picked.data.error]).toEqual([200, undefined])
+  expect(await status()).toMatchObject({
+    model: 'faux/main-faux',
+    thinking: 'off',
+    route: 'text',
+    setup: { model: { ready: true, detail: 'faux/main-faux: reads the transcript' } },
+  })
+  expect((await f.action('pick', { model: { provider: 'faux', modelId: 'gone' } })).status).toBe(
+    500,
+  )
+  const byAgent = await fetch(`${f.server.url}/api/extensions/voice-live/actions/pick`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: f.server.url,
+      [SOURCE_HEADER]: 'agent',
+    },
+    body: JSON.stringify({
+      args: { model: { provider: 'faux', modelId: 'gemini-faux' } },
+      conversationId: f.main,
+    }),
+  })
+  expect(byAgent.status).toBe(200)
+  expect(await status()).toMatchObject({ model: 'faux/gemini-faux', thinking: 'high' })
+  const changes = (
+    (await f.server.harness.snapshot(EventFeed, ROOT_CONVERSATION_ID, context))?.events ?? []
+  )
+    .filter((event) => ChangedEvent.is(event) && event.data.key === 'voice-live.pick')
+    .map((event) => (event.data as { source: string }).source)
+  expect(changes).toEqual(['person', 'agent'])
+  const first = await f.turn({ key: 'one', text: 'start' })
+  expect(f.requests.at(-1)!.model).toBe('gemini-faux')
+  expect((await f.server.harness.snapshot(AgentDoc, first.id, context))?.thinkingLevel).toBe('high')
+  const open = await f.action('pick', { model: { provider: 'faux', modelId: 'main-faux' } })
+  expect(open.data.error).toContain('A voice session is open')
+})
+
 it('a model picked in the fork itself carries over to the next session', async () => {
   const f = await fixture()
   const first = await f.turn({ key: 'one', text: 'start' })
@@ -410,6 +461,15 @@ it('other tools are blocked, voice_handoff starts @ultimate with a card and the 
   const blockedResult = f.requests.at(-1)!.messages.at(-1)!
   expect(blockedResult.role).toBe('toolResult')
   expect(JSON.stringify(blockedResult)).toContain('Voice mode reads, drives the UI and hands off')
+
+  await f.turn({
+    key: 'video',
+    text: `CALL ${JSON.stringify({ name: 'video_ask', args: { id: 'v_missing', question: 'What happens?' } })}`,
+    session: blocked.id,
+  })
+  const videoResult = f.requests.at(-1)!.messages.at(-1)!
+  expect(videoResult.role).toBe('toolResult')
+  expect(JSON.stringify(videoResult)).toContain('Expected a video id')
 
   const shot = { type: 'image', data: Buffer.from('png').toString('base64'), mimeType: 'image/png' }
   await f.turn({ key: 'shot', text: 'look at this', images: [shot] })

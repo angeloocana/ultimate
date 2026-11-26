@@ -10,5 +10,7 @@ export type TodosService = {
    */
   add(input: AddTodoArgs): Promise<Todo>
 }
+/** To-dos appear in the Inbox and follow up through it; without inbox the server tool and transcript cards still run. */
+export const wants = ['inbox']
 /** The project's to-do list; `want` it, to-dos are optional. */
 export const TodosApi = defineApi<TodosService>()('todos')

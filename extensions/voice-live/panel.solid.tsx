@@ -3,21 +3,14 @@ import {
   Check,
   LoaderCircle,
   CircleDashed,
-  ChevronLeft,
-  ChevronRight,
   Maximize2,
   Minimize2,
-  Pause,
-  Play,
   Settings2,
-  SkipBack,
-  SkipForward,
   SquareArrowOutUpRight,
   X,
 } from '@lucide/solid'
 import type { ConversationId } from '@earendil-works/pi-durable'
-import type { JSX } from '@solidjs/web'
-import { createEffect, createMemo, createSignal, For, onSettled, Show } from 'solid-js'
+import { createEffect, createMemo, For, onSettled, Show } from 'solid-js'
 import { Shimmer } from '@/components/ai/shimmer.solid.tsx'
 import { Button } from '@/components/ui/button.solid.tsx'
 import { Kbd } from '@/components/ui/kbd.solid.tsx'
@@ -26,9 +19,11 @@ import { Slider } from '@/components/ui/slider.solid.tsx'
 import { SegmentedControl, SegmentedControlItem } from '@/components/ui/segmented-control.solid.tsx'
 import { Switch as Toggle } from '@/components/ui/switch.solid.tsx'
 import {
+  api,
   cn,
   Composer,
   ComposerRedirect,
+  ConversationTranscript,
   composerDraft,
   PromptBox,
   formatKeys,
@@ -46,7 +41,6 @@ import {
   useViewport,
 } from '@/sdk/solid'
 import type { ComposerTarget } from '@/sdk/solid'
-import { every } from '../../lib/timers.ts'
 import { shortcut, talkMode } from '../dictation/ui.solid.tsx'
 import {
   activity,
@@ -67,16 +61,15 @@ import {
   voiceOpen,
   voiceSink,
 } from './dock.solid.tsx'
-import { StatusAction, VoiceForkDoc, VoiceSessionDoc } from './refs.ts'
-import { VOICES } from './voices.ts'
-import { estimate } from './speech.ts'
+import { PickAction, StatusAction, VoiceForkDoc, VoiceSessionDoc } from './refs.ts'
+import { PickControl } from '../models/ui.solid.tsx'
+import type { ModelPick } from '../models/ui.solid.tsx'
+import { PlaybackBar, SpeakerBar, speech, VOICES } from '../read-aloud/ui.solid.tsx'
 
-import { Session, Voicing, Waveform } from './turns.solid.tsx'
+import { Voicing, Waveform } from './turns.solid.tsx'
 
 const iconButton =
   'flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-open:bg-accent data-open:text-foreground pointer-coarse:size-9'
-const rowButton =
-  'h-auto rounded p-0.5 font-normal text-muted-foreground transition-colors hover:text-foreground [&_svg]:size-3'
 const keys = () => formatKeys(KEYS)[0].join('+')
 const holdKeys = () => formatKeys(shortcut())[0].join('+')
 const tap = () => talkMode() === 'tap'
@@ -86,7 +79,8 @@ const recording = () => dock.capturing()
 const working = () => dock.phase() === 'sending' || dock.phase() === 'thinking'
 
 function Status(props: { class?: string }) {
-  const text = () => dock.error() ?? dock.status()
+  const text = () =>
+    dock.error() ?? (audible() && dock.status() === 'Speaking' ? undefined : dock.status())
   return (
     <output
       class={cn(
@@ -109,7 +103,7 @@ function Status(props: { class?: string }) {
 }
 
 function SpokenParagraph() {
-  const state = useExternal(dock.player.state.get, dock.player.state.subscribe)
+  const state = playerState
   const paragraph = createMemo(() => {
     const items = dock.player.items()
     const current = items[state().index]
@@ -161,7 +155,7 @@ function VoiceLine(props: { words?: boolean }) {
     spoken() ||
     !!activity().current ||
     !!dock.error() ||
-    !!dock.status() ||
+    !!(dock.status() && !(audible() && dock.status() === 'Speaking')) ||
     draftOf().length > 0
   return (
     <Show when={shown()}>
@@ -233,14 +227,14 @@ function Settings() {
             <span class="flex items-center gap-2">
               <Slider
                 aria-label="Speech speed"
-                bind={[dock.rate, dock.setRate]}
+                bind={[speech.rate, speech.setRate]}
                 class="w-24"
                 max={2}
                 min={0.8}
                 step={0.05}
               />
               <span class="w-9 text-right text-foreground/85 tabular-nums">
-                {dock.rate().toFixed(2)}×
+                {speech.rate().toFixed(2)}×
               </span>
             </span>
           </label>
@@ -260,10 +254,10 @@ function Settings() {
 }
 
 function SpeechVoice() {
-  const keyed = () => dock.keyed() === true
+  const keyed = () => speech.keyed() === true
   const voiceNote = () => {
-    const needsKey = dock.keyed() === false && 'OpenAI voice needs OPENAI_API_KEY in ⌘K → Secrets'
-    if (dock.voiced()) return needsKey
+    const needsKey = speech.keyed() === false && 'OpenAI voice needs OPENAI_API_KEY in ⌘K → Secrets'
+    if (speech.voiced()) return needsKey
     if (needsKey) return `No system voices in this browser. ${needsKey}`
     return keyed() && 'No system voices in this browser · speaking with OpenAI'
   }
@@ -273,9 +267,9 @@ function SpeechVoice() {
         Voice
         <SegmentedControl
           aria-label="Speech voice"
-          bind={[() => (dock.openaiOn() ? 'openai' : 'system'), dock.setVoice]}
+          bind={[() => (speech.openaiOn() ? 'openai' : 'system'), speech.setVoice]}
         >
-          <SegmentedControlItem disabled={!dock.voiced()} value="system">
+          <SegmentedControlItem disabled={!speech.voiced()} value="system">
             System
           </SegmentedControlItem>
           <SegmentedControlItem disabled={!keyed()} value="openai">
@@ -288,10 +282,10 @@ function SpeechVoice() {
           <span class="text-[10.5px] leading-snug text-muted-foreground/70">{note()}</span>
         )}
       </Show>
-      <Show when={dock.openaiOn()}>
+      <Show when={speech.openaiOn()}>
         <SegmentedControl
           aria-label="OpenAI voice"
-          bind={[dock.openaiVoice, dock.setOpenaiVoice]}
+          bind={[speech.openaiVoice, speech.setOpenaiVoice]}
           class="grid grid-cols-5"
         >
           <For each={VOICES}>
@@ -308,76 +302,16 @@ function SpeechVoice() {
 }
 
 function PlaybackStrip() {
-  const state = useExternal(dock.player.state.get, dock.player.state.subscribe)
-  const [now, setNow] = createSignal(Date.now())
-  createEffect(
-    () => state().playing,
-    (on) => (on ? every(200, () => setNow(Date.now())) : undefined),
-  )
-  const progress = createMemo(() => {
-    const list = dock.player.items()
-    const current = list[state().index]
-    if (!current) return { done: 0, total: 1, paragraphs: 1, paragraph: 0 }
-    const total = list.reduce((sum, item) => sum + estimate(item.text, dock.rate()), 0)
-    const done =
-      list
-        .slice(0, state().index)
-        .reduce((sum, item) => sum + estimate(item.text, dock.rate()), 0) +
-      (state().playing
-        ? Math.min(estimate(current.text, dock.rate()), (now() - state().startedAt) / 1000)
-        : 0)
-    return {
-      done,
-      total,
-      paragraphs: new Set(list.map((item) => item.paragraph)).size,
-      paragraph: current.paragraph,
-    }
-  })
-  const step = (label: string, icon: JSX.Element, run: () => void) => (
-    <Button
-      aria-label={label}
-      class={rowButton}
-      onClick={() => run()}
-      size={null}
-      title={label}
-      variant={null}
-    >
-      {icon}
-    </Button>
-  )
   return (
-    <Show when={state().playing || state().paused}>
-      <div
-        class="relative flex min-w-0 items-center gap-2 overflow-hidden rounded-lg border border-border/70 bg-muted/30 px-2.5 py-1 font-mono text-[11px] text-muted-foreground"
-        data-voice-playback
-      >
-        <AudioLines class="size-3.5 shrink-0 text-brand" />
-        <span class="min-w-0 truncate tabular-nums">
-          {state().paused ? 'Paused' : 'Speaking'} · ¶ {progress().paragraph + 1}/
-          {progress().paragraphs}
-          {state().streaming ? '+' : ''} · {state().index + 1}/{dock.player.items().length} · ~
-          {Math.max(0, Math.round(progress().total - progress().done))} s
-          {state().streaming ? ' · still writing' : ''}
-        </span>
-        <span class="ml-auto flex shrink-0 items-center gap-1">
-          {step('Previous paragraph', <SkipBack />, () => dock.player.paragraph(-1))}
-          {step('Previous sentence', <ChevronLeft />, () => dock.player.sentence(-1))}
-          {step(
-            state().playing ? 'Pause speech' : 'Resume speech',
-            state().playing ? <Pause /> : <Play />,
-            () => dock.player.toggle(),
-          )}
-          {step('Next sentence', <ChevronRight />, () => dock.player.sentence(1))}
-          {step('Next paragraph', <SkipForward />, () => dock.player.paragraph(1))}
-        </span>
-        <i
-          aria-hidden="true"
-          class="absolute bottom-0 left-0 h-px bg-brand/70 transition-[width] duration-200 ease-linear"
-          style={{
-            width: `${Math.min(100, (progress().done / progress().total) * 100)}%`,
-          }}
-        />
-      </div>
+    <Show
+      when={playerState().playing || playerState().paused}
+      fallback={<SpeakerBar name="Voice dock" />}
+    >
+      <PlaybackBar
+        name="Voice dock"
+        status={playerState().paused ? 'Paused' : 'Speaking'}
+        toggle={() => speech.toggle()}
+      />
     </Show>
   )
 }
@@ -487,7 +421,33 @@ function SetupList() {
   )
 }
 
+function useVoicePick(): ModelPick {
+  const session = useDocOf(() => ROOT, VoiceSessionDoc)
+  const status = useAction(StatusAction, null, {
+    conversation: ROOT,
+    on: () => [session()?.id, session()?.model, session()?.thinking],
+  })
+  const ref = () => {
+    const model = status.data()?.model
+    if (!model) return undefined
+    const at = model.indexOf('/')
+    return { provider: model.slice(0, at), modelId: model.slice(at + 1) }
+  }
+  return {
+    name: 'Voice',
+    ref,
+    thinking: () => status.data()?.thinking,
+    configure: async (change) => {
+      await api.action(PickAction, change, { conversationId: ROOT })
+      await status.refetch()
+    },
+  }
+}
+
 function Bottom(props: { fork: ConversationId | undefined; fold: boolean }) {
+  const chip = <PickControl pick={useVoicePick()} />
+  const idle = () => !recording() && !working() && dock.phase() !== 'recording'
+  const showChip = () => props.fork === undefined && idle()
   const coldHeld = useExternal(
     () => coldHolds(composerDraft(COLD_DRAFT)),
     (notify) => composerDraft(COLD_DRAFT).subscribe(notify),
@@ -501,7 +461,7 @@ function Bottom(props: { fork: ConversationId | undefined; fold: boolean }) {
     dictation: voiceSink,
     ready: () => draftOf().length > 0,
     send: (text, images) => sendTyped(text, images),
-    ...(hot() === undefined ? { draft: COLD_DRAFT } : {}),
+    ...(hot() === undefined ? { draft: COLD_DRAFT, toolbar: showChip() ? chip : undefined } : {}),
   })
   return (
     <Show
@@ -566,7 +526,7 @@ export function VoicePanel() {
   createEffect(
     () => status.data()?.transcribes,
     (known) => {
-      if (known !== undefined) dock.setKeyed(known)
+      if (known !== undefined) speech.setKeyed(known)
     },
   )
   createEffect(
@@ -736,7 +696,7 @@ export function VoicePanel() {
           >
             {(open) => (
               <ScopedConversation id={open()}>
-                <Session fork={open()} />
+                <ConversationTranscript dock />
               </ScopedConversation>
             )}
           </Show>

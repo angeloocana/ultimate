@@ -396,6 +396,8 @@ export async function loadExtensions(
     device?: Device,
     source: UiSource = { source: 'person' },
   ) {
+    if (caller === 'agent' && userActions.get(name)?.includes(action))
+      throw new Error(`${name}/${action} is a user-only action`)
     const table = actions.get(name)
     const fn = table && Object.hasOwn(table, action) ? table[action] : undefined
     if (!fn) throw new Error(`Unknown extension action: ${name}/${action}`)
@@ -411,8 +413,8 @@ export async function loadExtensions(
       fn(args, {
         host: facetHosts.get(name)!,
         conversationId,
-        source: by.source,
         ...(device ? { device } : {}),
+        by,
         uiChanged: async (tx, change) => {
           const data = uiChange(by, { ...change, conversation: conversationId })
           if (data) await log.emit(tx, ChangedEvent, data)
@@ -433,11 +435,8 @@ export async function loadExtensions(
     )
   }
   const extensionHost: ExtensionHost = {
-    invoke: async (name, action, args, signal, conversationId) => {
-      if (userActions.get(name)?.includes(action))
-        throw new Error(`${name}/${action} is a user-only action`)
-      return invoke(name, action, args, signal, conversationId, 'agent')
-    },
+    invoke: (name, action, args, signal, conversationId) =>
+      invoke(name, action, args, signal, conversationId, 'agent'),
     emit: log.emit,
     react: () => {
       throw new Error('Reactors require a facet scope')
@@ -574,6 +573,7 @@ export async function loadExtensions(
   ]
   let previousSettings: string | undefined
   let diagnostics: string[] = []
+  const discoveryFailed = new Set<string>()
   async function discover() {
     const active = await discoverExtensions(host.ultimateRoot, host.projectRoot, host.userHome)
     const available = await discoverExtensions(
@@ -587,7 +587,7 @@ export async function loadExtensions(
       ...active,
       ...available
         .filter((entry) => !active.some((current) => current.name === entry.name))
-        .map((entry) => ({ ...entry, enabled: false })),
+        .map((entry) => ({ ...entry, enabled: false, missing: [] })),
     ].toSorted(compareExtensions)
     return Object.assign(winners, { settings: active.settings })
   }
@@ -597,6 +597,19 @@ export async function loadExtensions(
     winners?: Awaited<ReturnType<typeof discover>>,
   ) {
     winners ??= await discover()
+    for (const winner of winners) {
+      const previous = records.get(winner.name)
+      if (
+        selected &&
+        (!previous ||
+          previous.enabled !== winner.enabled ||
+          (previous.offForMissing ?? []).join() !== winner.missing.join() ||
+          (discoveryFailed.has(winner.name) && !winner.error))
+      ) {
+        selected.add(winner.name)
+        servers?.add(winner.name)
+      }
+    }
     const folders = winners.map((winner) => winner.name)
     const settings = winners.settings
     diagnostics = [
@@ -608,6 +621,12 @@ export async function loadExtensions(
       ...winners
         .filter((winner) => winner.core && settings.overrides.get(winner.name) === false)
         .map((winner) => `${winner.name} is core and stays enabled; extensions.disable ignores it`),
+      ...winners
+        .filter((winner) => winner.missing.length)
+        .map(
+          (winner) =>
+            `${winner.name} stays off: it requires ${winner.missing.join(' and ')}, which ${winner.missing.length === 1 ? 'is' : 'are'} off`,
+        ),
     ]
     const signature = JSON.stringify([settings.contents, folders, diagnostics])
     if (signature !== previousSettings) {
@@ -622,6 +641,8 @@ export async function loadExtensions(
       enabled,
       files,
       core,
+      requires,
+      missing,
       error: discoveryError,
     } of winners) {
       if (closed) return
@@ -641,6 +662,8 @@ export async function loadExtensions(
         source,
         enabled,
         ...(core ? { core } : {}),
+        ...(requires ? { requires } : {}),
+        ...(missing.length ? { offForMissing: missing } : {}),
         layer,
         actions: Object.keys(actions.get(name) ?? {}),
         events: (await contractOutline({ name, path, enabled })).events,
@@ -736,8 +759,10 @@ export async function loadExtensions(
         record.actions = []
         delete record.server
       }
-      if (enabled && discoveryError)
+      if (enabled && discoveryError) {
         record.server = { tools: [], sections: [], hooks: 0, docs: [], error: discoveryError }
+        discoveryFailed.add(name)
+      } else discoveryFailed.delete(name)
       if (enabled && !record.server?.error) host.builds.extension(name, path)
       if (!enabled) host.builds.remove(name)
       records.set(name, record)

@@ -68,3 +68,7 @@ the box accounts for the space the keyboard takes so the Send button can stay in
 - **To-dos**: open user-owned to-dos appear in Inbox with a follow-up box to @ultimate. The to-do extension adds
   controls to the Inbox header; **Start** on one of @ultimate's tasks opens the same box in its dialog.
 - ⌘K **Open Inbox**.
+- **App icon**: an installed app shows the same count as a badge on its Dock, taskbar or home-screen icon
+  (`navigator.setAppBadge`), cleared at zero and left alone until the open questions have loaded; a browser without
+  the Badging API shows nothing, and iOS shows it only once notifications are allowed. It follows the open pages, so
+  the last count stays on the icon after the last window closes.

@@ -39,6 +39,7 @@ import { SubmitAfter, submitAfter } from './submit.ts'
 import {
   ContextUsageDoc,
   ConversationsApi,
+  ExternalSessions,
   Marks,
   Overview,
   Previews,
@@ -139,15 +140,12 @@ export const actions = {
   activity: implementAction(ActivityAction, (args, { host, signal }) =>
     activityStats(host.harness(), conversationIds(args), withAbortSignal(signal, context)),
   ),
-  conclude: implementAction(
-    ConcludeAction,
-    async (args, { host, conversationId, device, source }) => {
-      const ids = conversationIds(args)
-      const force = args && typeof args === 'object' && !Array.isArray(args) && args.force === true
-      const refuseBusy = !device && source === 'agent' && !force
-      return concludeAndStopOtherTrees(host, ids, device ? undefined : conversationId, refuseBusy)
-    },
-  ),
+  conclude: implementAction(ConcludeAction, async (args, { host, conversationId, device, by }) => {
+    const ids = conversationIds(args)
+    const force = args && typeof args === 'object' && !Array.isArray(args) && args.force === true
+    const refuseBusy = !device && by.source === 'agent' && !force
+    return concludeAndStopOtherTrees(host, ids, device ? undefined : conversationId, refuseBusy)
+  }),
   resume: implementAction(ResumeAction, async (args, { host }) => {
     const ids = conversationIds(args)
     const resumed = await resume(host, ids)
@@ -219,6 +217,8 @@ async function concludeAndStopOtherTrees(
   }, context)
   if (!concluded.length) return { concluded, stopped: [], previews: [], kept: [], refused }
 
+  using external = await host.want(ExternalSessions)?.stop([...tree])
+  void external
   const stopped: ConversationId[] = []
   if (from === undefined || !tree.includes(from)) {
     stopped.push(...tree.filter((id) => busy.has(id)).toSorted((a, b) => a - b))
@@ -374,6 +374,7 @@ export default (host: ExtensionHost) => {
   host.want(Trees)
   host.want(Release)
   host.want(Previews)
+  host.want(ExternalSessions)
   host.implement(ConversationsApi, {
     subject: (id, caller) => subject(host, id, caller),
     concludeIn: (tx, ids, by) => concludeIn(host, tx, ids, by),

@@ -100,7 +100,15 @@ function page(stored?: string, navigation: PerformanceNavigationTiming['type'] =
     querySelectorAll: () => [],
   }
   const performance = { getEntriesByType: () => [{ type: navigation }] }
-  return { document, sessionStorage, items, body, performance, location: { search: '' } }
+  return {
+    document,
+    sessionStorage,
+    items,
+    body,
+    performance,
+    location: { search: '' },
+    addEventListener: () => {},
+  }
 }
 
 afterEach(() => {

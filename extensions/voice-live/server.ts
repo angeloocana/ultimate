@@ -34,24 +34,25 @@ import { readSettings, userSettingsPath } from '../../lib/settings.ts'
 import { imageMimeTypes, maxImageBytes, maxImages } from '../../shared/protocol.ts'
 import { ClassifyApi } from '../classify/api.ts'
 import { ConversationsApi } from '../conversations/api.ts'
+import { Family } from '../models/api.ts'
 import { Branch } from '../lineage/api.ts'
 import { Standing } from '../subagents/api.ts'
+import { VideoApi } from '../video/api.ts'
 import { VoiceHandoffEntry, VoiceTurnEntry } from './entries.ts'
 import {
   EndAction,
   RecordAction,
   OpenAction,
+  PickAction,
   StatusAction,
   StopAction,
   DiscardAction,
   IntentAction,
-  SpeakAction,
   TurnAction,
   UiAnswerAction,
   UiClaimAction,
 } from './refs.ts'
 import type {
-  OpenAiVoice,
   VoiceDelivery,
   VoiceFork,
   VoiceHandoff,
@@ -61,8 +62,6 @@ import type {
   VoiceUi,
 } from './refs.ts'
 import { voicePrompt } from './prompt.ts'
-import { createRealtimeVoice } from './openai-voice.ts'
-import { MAX_SPOKEN, VOICES } from './voices.ts'
 
 const DEFAULT_MODEL = { provider: 'claude-code', modelId: 'claude-opus-5-5' }
 const MAX_AUDIO_BYTES = 8 * 1024 * 1024
@@ -75,25 +74,34 @@ const VOICE_TOOLS = [
   'memory',
   'web_search',
   'web_fetch',
+  'video_ask',
   'codemode',
   'action',
   'ui',
   'voice_handoff',
 ]
 const UI_TIMEOUT_MS = 15_000
-const SPEAK_TIMEOUT_MS = 20_000
+const THINKING_LEVELS: readonly ModelThinkingLevel[] = [
+  'off',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max',
+]
 
 export const userActions = [
   'open',
   'record',
   'turn',
+  'pick',
   'stop',
   'end',
   'ui-claim',
   'ui-answer',
   'discard',
   'intent',
-  'speak',
 ]
 
 export const Session = defineDoc<VoiceSession>({
@@ -291,6 +299,7 @@ async function openSession(host: ExtensionHost, expected?: ConversationId) {
     const agent = await tx.doc(AgentDoc, fork.id)
     agent.model = model
     agent.thinkingLevel = thinkingFor(host, model, session.thinking)
+    ;(await tx.doc(Family, fork.id)).name = null
     const own = ['ui', 'voice_handoff']
     const tools = agent.tools
     if (Array.isArray(tools))
@@ -415,30 +424,18 @@ async function wordsOf(tx: Tx, session: ConversationId, fork: VoiceFork) {
   return { words: said.slice(said.length - kept), earlier: said.length - kept }
 }
 
-const voices = new WeakMap<ExtensionHost, ReturnType<typeof createRealtimeVoice>>()
-const realtimeVoice = (host: ExtensionHost) => {
-  const known = voices.get(host)
-  if (known) return known
-  const made = createRealtimeVoice()
-  voices.set(host, made)
-  host.onClose(async () => {
-    voices.delete(host)
-    made.close()
-  })
-  return made
-}
-
 const unwrap = <T extends object>(args: unknown) =>
   (args && typeof args === 'object' && !Array.isArray(args) ? args : {}) as Partial<T>
 
 export const actions = {
   status: implementAction(StatusAction, async (_args, { host }) => {
-    const open = (await host.harness().snapshot(Session, ROOT_CONVERSATION_ID, context))?.id
-    const model =
-      (open === undefined
+    const session = await host.harness().snapshot(Session, ROOT_CONVERSATION_ID, context)
+    const agent =
+      session?.id === undefined
         ? undefined
-        : (await host.harness().snapshot(AgentDoc, open, context))?.model) ??
-      (await voiceModel(host))
+        : await host.harness().snapshot(AgentDoc, session.id, context)
+    const model = agent?.model ?? (await voiceModel(host))
+    const thinking = agent?.thinkingLevel ?? thinkingFor(host, model, session?.thinking)
     const available = host.modelRuntime
       .getAvailableSnapshot()
       .some((listed) => listed.provider === model.provider && listed.id === model.modelId)
@@ -448,6 +445,7 @@ export const actions = {
       !!host.want(ClassifyApi) && !!(await readSecret(host.userHome, 'TYPESAFE_API_KEY'))
     return {
       model: name,
+      thinking,
       route: hearsAudio(model) ? ('audio' as const) : ('text' as const),
       transcribes,
       ...(available ? {} : { reason: `${name} has no login` }),
@@ -462,7 +460,7 @@ export const actions = {
           : {
               ready: false,
               detail: `${name} has no login`,
-              fix: 'Log in to its provider, or type a first message to open a session and pick another model in its prompt box.',
+              fix: 'Log in to its provider, or pick another model in the prompt box below.',
             },
         transcription: transcribes
           ? {
@@ -533,6 +531,31 @@ export const actions = {
     }, context)
     host.harness().resume()
     return { audio: id, session }
+  }),
+  pick: implementAction(PickAction, async (args, action) => {
+    const { host } = action
+    const { model, thinkingLevel } = unwrap<{ model: unknown; thinkingLevel: unknown }>(args)
+    const { provider, modelId } = unwrap<{ provider: unknown; modelId: unknown }>(model)
+    if (
+      model !== undefined &&
+      (typeof provider !== 'string' ||
+        typeof modelId !== 'string' ||
+        !host.modelRuntime.getModel(provider, modelId))
+    )
+      throw new Error('Expected model as a known { provider, modelId }')
+    if (thinkingLevel !== undefined && !THINKING_LEVELS.includes(thinkingLevel as never))
+      throw new Error(`Expected thinkingLevel as one of ${THINKING_LEVELS.join(', ')}`)
+    await host.harness().commit(async (tx) => {
+      const session = await tx.doc(Session, ROOT_CONVERSATION_ID)
+      if (session.id !== undefined)
+        throw new Error('A voice session is open: pick its model in its own prompt box')
+      const picked = () => `${session.model ?? ''}:${session.thinking ?? ''}`
+      const previous = picked()
+      if (model !== undefined) session.model = `${provider as string}/${modelId as string}`
+      if (thinkingLevel !== undefined) session.thinking = thinkingLevel as ModelThinkingLevel
+      await action.uiChanged(tx, { key: 'voice-live.pick', value: picked(), previous })
+    }, context)
+    return {}
   }),
   open: implementAction(OpenAction, async (_args, { host }) => ({
     conversation: await openSession(host),
@@ -665,22 +688,6 @@ export const actions = {
       delete (await tx.doc(Fork, id)).draft
     }, context)
     return {}
-  }),
-  speak: implementAction(SpeakAction, async (args, { host, signal }) => {
-    const { voice, text } = unwrap<{ voice: unknown; text: unknown }>(args)
-    if (!VOICES.includes(voice as OpenAiVoice)) throw new Error(`Unknown voice: ${String(voice)}`)
-    if (
-      text !== undefined &&
-      (typeof text !== 'string' || !text.trim() || text.length > MAX_SPOKEN)
-    )
-      throw new Error(`Expected text of at most ${MAX_SPOKEN} characters`)
-    const key = await openaiSecretOrNonOAuthKey(host, signal)
-    if (!key) throw new Error('OpenAI voice needs OPENAI_API_KEY in ⌘K → Secrets')
-    const realtime = realtimeVoice(host)
-    const bounded = AbortSignal.any([signal, AbortSignal.timeout(SPEAK_TIMEOUT_MS)])
-    if (text === undefined) return await realtime.connect(key, bounded).then(() => ({}))
-    const wav = await realtime.speak(key, text, voice as OpenAiVoice, bounded)
-    return { audio: wav.toString('base64') }
   }),
   intent: implementAction(IntentAction, async (args, { host, signal }) => {
     const { audio } = unwrap<{ audio: unknown }>(args)
@@ -897,7 +904,7 @@ export default function voiceExtension(host: ExtensionHost) {
               model: [
                 {
                   role: 'user' as const,
-                  content: voicePrompt(conversationId, fork.of),
+                  content: voicePrompt(conversationId, fork.of, !!host.want(VideoApi)),
                   timestamp: Date.now(),
                 },
               ],

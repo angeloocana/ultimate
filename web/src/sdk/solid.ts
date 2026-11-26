@@ -50,6 +50,7 @@ export {
   useDocKind,
   useDocOf,
   useExtensionUiState,
+  useEnabled,
   useExtensions,
   useModels,
   useNotices,
@@ -64,6 +65,7 @@ export {
   useViewport,
 } from './hooks.ts'
 export {
+  AnswerSpeaker,
   codeBlockRenderers,
   ComposerPlaceholder,
   ComposerRedirect,
@@ -72,6 +74,7 @@ export {
   ConversationScope,
   createTranscriptFrame,
   Dictation,
+  DictationShortcut,
   documentItems,
   EmptyTranscript,
   entryRenderers,
@@ -220,6 +223,11 @@ export { useProvided } from './contribution.solid.tsx'
 /** Building blocks of surfaces; see docs/extensions/surfaces.md. */
 export { Header } from '../app/header.solid.tsx'
 export { Conversation, Dock, Panels, Sidebar, StatusLine } from '../app/shell.solid.tsx'
+/**
+ * The transcript of the scoped or shown conversation alone, without its prompt box; `dock` uses the narrow column side
+ * chats use. Only the conversation's own entries show, so a fork hides the history it inherited.
+ */
+export { Transcript as ConversationTranscript } from '../app/transcript.solid.tsx'
 /** The prompt box of the scoped or shown conversation alone, without its transcript; wrap it in `ComposerRedirect` to send elsewhere. */
 export { Composer } from '../app/composer.solid.tsx'
 /**
@@ -228,6 +236,7 @@ export { Composer } from '../app/composer.solid.tsx'
  * picks inline images and uploaded files.
  */
 export { PromptBox } from '../app/prompt-box.solid.tsx'
+export { ToolCallBlock } from '../app/tool-call.solid.tsx'
 /** An extension's failure, inline or as a block with a report button, as the shell shows it. */
 export { ErrorCard } from '../app/error-card.solid.tsx'
 /** A contribution's `icon` (a panel's, a surface's) with `class`. */

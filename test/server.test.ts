@@ -162,7 +162,7 @@ export const actions = { ping: async () => 'pong', revoke: async () => { remove(
       attribution: `import { defineExtension } from '@earendil-works/pi-durable'
 export default defineExtension({ name: 'attribution' })
 export const actions = {
-  source: async (_args, ctx) => ctx.source,
+  source: async (_args, ctx) => ctx.by.source,
   fromAgent: async (_args, ctx) => ctx.host.invoke('attribution', 'source', null, ctx.signal),
 }`,
     })
