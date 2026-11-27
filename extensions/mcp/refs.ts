@@ -30,8 +30,11 @@ export const SignInAction = actionRef<{ name: string; origin: string }, { url?: 
   'mcp',
   'signIn',
 )
-/** `{ name, url }` (user only): `url` is the redirect the browser landed on; exchanges its code, then connects. */
-export const CompleteSignInAction = actionRef<{ name: string; url: string }, McpServerStatus[]>(
-  'mcp',
-  'completeSignIn',
-)
+/**
+ * `{ name, authorizationResponse }` (user only): the redirect URL the browser landed on, carrying the code (the name
+ * keeps it out of the trace); exchanges its code, then connects.
+ */
+export const CompleteSignInAction = actionRef<
+  { name: string; authorizationResponse: string },
+  McpServerStatus[]
+>('mcp', 'completeSignIn')

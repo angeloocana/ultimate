@@ -180,9 +180,9 @@ it('signs in to an OAuth MCP server through its redirect to this page, keeps and
   back.searchParams.set('code', 'code-1')
   back.searchParams.set('state', authorization.searchParams.get('state')!)
   back.searchParams.set('iss', course.issuer)
-  expect(await first.call('completeSignIn', { name: 'course', url: back.href })).toMatchObject([
-    { name: 'course', state: 'connected', tools: 1 },
-  ])
+  expect(
+    await first.call('completeSignIn', { name: 'course', authorizationResponse: back.href }),
+  ).toMatchObject([{ name: 'course', state: 'connected', tools: 1 }])
   expect(course.seen.tokenRequests[0].get('code_verifier')).toMatch(/^[\w-]{43,}$/)
   expect((await stat(join(root, '.ultimate/mcp-oauth.json'))).mode & 0o777).toBe(0o600)
   expect(await first.run()).toMatchObject({ output: [{ text: 'lesson for at-1' }] })

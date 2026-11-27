@@ -72,7 +72,11 @@ export function SignInReturn() {
       clean.searchParams.delete(key)
     history.replaceState(history.state, '', clean)
     writingAs('app', () =>
-      api.action(CompleteSignInAction, { name, url: url.href }, { conversationId: ROOT }),
+      api.action(
+        CompleteSignInAction,
+        { name, authorizationResponse: url.href },
+        { conversationId: ROOT },
+      ),
     ).then(
       () => notify({ level: 'info', message: `Signed in to ${name}` }),
       (error: unknown) =>

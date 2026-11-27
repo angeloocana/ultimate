@@ -50,4 +50,4 @@ Servers connect when the server opens, each on its own: a failing one never bloc
 
 The status line's `mcp 2/3` chip counts connected out of configured servers, turns red while one failed or is signed out, and is hidden when none is configured. Its popover lists each server with its transport, source, state or tool count, the error and the next retry, and a reconnect button. The Extensions panel's `mcp` row lists the same servers when opened.
 
-Actions: `status` → every server's state; `reconnect {name}` → connects one again and returns the states; `signIn {name, origin}` and `completeSignIn {name, url}` (user only) run the two halves of an OAuth sign-in.
+Actions: `status` → every server's state; `reconnect {name}` → connects one again and returns the states; `signIn {name, origin}` and `completeSignIn {name, authorizationResponse}` (user only) run the two halves of an OAuth sign-in.

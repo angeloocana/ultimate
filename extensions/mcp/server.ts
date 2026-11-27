@@ -242,7 +242,7 @@ export const actions: Record<string, ExtensionAction> = {
     const view = views.get(host)
     const name = isObject(args) ? args.name : undefined
     if (!view || typeof name !== 'string') throw new Error('completeSignIn: name is required')
-    await view.completeSignIn(name, isObject(args) ? args.url : undefined)
+    await view.completeSignIn(name, isObject(args) ? args.authorizationResponse : undefined)
     return view.status()
   }),
 }
@@ -261,13 +261,22 @@ export default async function mcp(host: ExtensionHost) {
   function authFor(server: Server, entry: Entry) {
     delete server.challenge
     if (!('url' in entry) || sendsOwnAuthorization(entry)) return undefined
-    return (server.auth = createMcpAuthProvider({
+    const auth = createMcpAuthProvider({
       serverUrl: entry.url,
       store: oauthStore(host.userHome, entry.url),
       settings: () => ({}),
       clientName: 'Ultimate',
       onChallenge: (challenge) => (server.challenge = challenge),
-    }))
+    })
+    server.auth = auth
+    return {
+      ...auth,
+      token: () =>
+        auth.token().catch((error: unknown) => {
+          console.warn(`MCP ${server.name}: no stored OAuth token: ${redact(server, error)}`)
+          return undefined
+        }),
+    }
   }
 
   function signInOptions(server: Server, redirectUrl: string): McpSignInOptions {
@@ -438,7 +447,8 @@ export default async function mcp(host: ExtensionHost) {
       const server = named(name)
       const pending = pendingSignIns.get(name)
       if (!pending) throw new Error(`The sign-in to ${name} expired: press Sign in again`)
-      if (typeof url !== 'string') throw new Error('completeSignIn: url is required')
+      if (typeof url !== 'string')
+        throw new Error('completeSignIn: authorizationResponse is required')
       const response = responseFromRedirectUrl(url, pending.authorization)
       pendingSignIns.delete(name)
       await completeMcpSignIn({

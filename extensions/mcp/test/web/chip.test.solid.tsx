@@ -180,7 +180,7 @@ it('finishes a sign-in the redirect brought back to the page, as the app, and cl
     name: 'completeSignIn',
     args: {
       name: 'course',
-      url: `${location.origin}/?conversation=7&mcp-oauth=course&code=c1&state=s1&iss=https%3A%2F%2Fhq.example`,
+      authorizationResponse: `${location.origin}/?conversation=7&mcp-oauth=course&code=c1&state=s1&iss=https%3A%2F%2Fhq.example`,
     },
     source: 'app',
   })
