@@ -7,6 +7,8 @@ Every built-in is already on; this setup adds how the repository is landed and r
 
 - `settings.json`: each worktree isolate installs its dependencies, and the lander runs `pnpm check`, then
   `pnpm test:affected` (the tests the landing reaches, whole suites when a shared layer changed), and pushes to `origin`.
+  Each check runs under `hold-heavy.sh`, which holds the Mac-wide landing marker (`~/.ultimate/heavy/landing`) so
+  other projects' `heavy.sh` starts no new heavy job while it runs.
 - `agents/reviewer-*.md`: the review team (correctness, simplicity, architecture), each on its own model; the shipped
   `reviewer` starts them in parallel and returns one merged verdict.
 

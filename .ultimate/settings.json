@@ -21,9 +21,9 @@
   },
   "lander": {
     "checks": [
-      { "command": "pnpm check", "timeout": 120 },
-      { "command": "pnpm tla", "timeout": 300 },
-      { "command": "pnpm test:affected", "timeout": 600 }
+      { "command": "sh .ultimate/hold-heavy.sh pnpm check", "timeout": 120 },
+      { "command": "sh .ultimate/hold-heavy.sh pnpm tla", "timeout": 300 },
+      { "command": "sh .ultimate/hold-heavy.sh pnpm test:affected", "timeout": 600 }
     ],
     "push": "origin"
   }
