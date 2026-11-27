@@ -1,5 +1,5 @@
 import { LoaderCircle, Plug, RefreshCw } from '@lucide/solid'
-import { createMemo, createSignal, For, Show } from 'solid-js'
+import { createMemo, createSignal, For, onSettled, Show } from 'solid-js'
 import { Button } from '@/components/ui/button.solid.tsx'
 import { Popover, PopoverContent } from '@/components/ui/popover.solid.tsx'
 import { StatusPopoverTrigger } from '@/components/ui/status-trigger.solid.tsx'
@@ -10,12 +10,13 @@ import {
   errorMessage,
   events,
   keepLast,
+  notify,
   useAction,
   useEvent,
   useNow,
   writingAs,
 } from '@/sdk/solid'
-import { ReconnectAction, StatusAction } from './refs.ts'
+import { CompleteSignInAction, ReconnectAction, SignInAction, StatusAction } from './refs.ts'
 import type { McpServerStatus } from './refs.ts'
 
 const settling = (servers: McpServerStatus[] | undefined) => {
@@ -34,7 +35,52 @@ function useServers() {
   return { servers, refresh }
 }
 
-const tone = { connected: 'bg-success', connecting: 'bg-muted-foreground/50', failed: 'bg-error' }
+const tone = {
+  connected: 'bg-success',
+  connecting: 'bg-muted-foreground/50',
+  failed: 'bg-error',
+  signin: 'bg-warning',
+}
+
+const SIGN_IN_PARAMETER = 'mcp-oauth'
+
+async function signIn(name: string) {
+  const tab = window.open('', '_blank')
+  if (tab) tab.opener = null
+  try {
+    const { url } = await api.action(
+      SignInAction,
+      { name, origin: location.origin },
+      { conversationId: ROOT },
+    )
+    if (url && tab) tab.location.href = url
+    else if (url) location.assign(url)
+    else tab?.close()
+  } catch (error) {
+    tab?.close()
+    throw error
+  }
+}
+
+export function SignInReturn() {
+  onSettled(() => {
+    const url = new URL(location.href)
+    const name = url.searchParams.get(SIGN_IN_PARAMETER)
+    if (!name) return
+    const clean = new URL(url)
+    for (const key of [SIGN_IN_PARAMETER, 'code', 'state', 'iss', 'error', 'error_description'])
+      clean.searchParams.delete(key)
+    history.replaceState(history.state, '', clean)
+    writingAs('app', () =>
+      api.action(CompleteSignInAction, { name, url: url.href }, { conversationId: ROOT }),
+    ).then(
+      () => notify({ level: 'info', message: `Signed in to ${name}` }),
+      (error: unknown) =>
+        notify({ level: 'error', message: `Sign-in to ${name} failed: ${errorMessage(error)}` }),
+    )
+  })
+  return null
+}
 
 function Row(props: { server: McpServerStatus; refresh: () => void }) {
   const [busy, setBusy] = createSignal(false)
@@ -73,21 +119,44 @@ function Row(props: { server: McpServerStatus; refresh: () => void }) {
         <span class="ml-auto shrink-0 text-[11px] text-muted-foreground">
           {props.server.state === 'connected'
             ? `${props.server.tools} ${props.server.tools === 1 ? 'tool' : 'tools'}`
-            : props.server.state}
+            : props.server.state === 'signin'
+              ? 'signed out'
+              : props.server.state}
         </span>
-        <Button
-          aria-label={`Reconnect ${props.server.name}`}
-          class="-mr-1 rounded-sm p-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
-          disabled={connecting()}
-          onClick={reconnect}
-          size={null}
-          title="Reconnect"
-          variant={null}
+        <Show
+          when={props.server.state === 'signin'}
+          fallback={
+            <Button
+              aria-label={`Reconnect ${props.server.name}`}
+              class="-mr-1 rounded-sm p-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+              disabled={connecting()}
+              onClick={reconnect}
+              size={null}
+              title="Reconnect"
+              variant={null}
+            >
+              <Show when={connecting()} fallback={<RefreshCw class="size-3" />}>
+                <LoaderCircle class="size-3 animate-spin" />
+              </Show>
+            </Button>
+          }
         >
-          <Show when={connecting()} fallback={<RefreshCw class="size-3" />}>
-            <LoaderCircle class="size-3 animate-spin" />
-          </Show>
-        </Button>
+          <Button
+            aria-label={`Sign in ${props.server.name}`}
+            class="-mr-1 rounded-sm border border-border px-1.5 py-0.5 text-[11px] font-normal text-foreground/90 transition-colors hover:bg-accent"
+            data-agent-confirm="opens the server's sign-in page for the user"
+            onClick={() => {
+              setError(undefined)
+              return signIn(props.server.name).catch((failure: unknown) =>
+                setError(errorMessage(failure)),
+              )
+            }}
+            size={null}
+            variant={null}
+          >
+            Sign in
+          </Button>
+        </Show>
       </div>
       <Show when={error() ?? props.server.error}>
         <p class="mt-0.5 line-clamp-3 pl-3.5 text-[11px] leading-snug break-words text-error/85">
@@ -128,7 +197,9 @@ export function Chip() {
   const connected = createMemo(
     () => servers()?.filter((server) => server.state === 'connected').length ?? 0,
   )
-  const failed = createMemo(() => servers()?.some((server) => server.state === 'failed'))
+  const failed = createMemo(() =>
+    servers()?.some((server) => server.state === 'failed' || server.state === 'signin'),
+  )
   const total = () => servers()?.length ?? 0
   return (
     <Show when={total()}>

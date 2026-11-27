@@ -58,7 +58,8 @@ vi.mock('../../../../web/src/sdk/client.ts', async () => {
 
 import { ROOT } from '../../../../web/src/sdk/api.ts'
 import { reads, store } from '../../../../web/src/sdk/client.ts'
-import { Chip } from '../../chip.solid.tsx'
+import { Chip, SignInReturn } from '../../chip.solid.tsx'
+import { expectDistinctAgentNames } from '../../../../test/web/agent-names.ts'
 import { StatusAction } from '../../refs.ts'
 
 const agent = createAgent()
@@ -136,4 +137,52 @@ it('polls every 2 s while a server connects, then every minute', async ({ onTest
   expect(polls()).toBe(settled)
   await vi.advanceTimersByTimeAsync(30_100)
   expect(polls()).toBe(settled + 1)
+})
+
+it('offers Sign in for a signed-out server, behind a confirm for agents', async ({
+  onTestFinished,
+}) => {
+  harness.servers = [{ name: 'course', source: 'project', state: 'signin', transport: 'http' }]
+  store.start()
+  onTestFinished(() => store.stop())
+  harness.sources[0].open()
+  await reads.get(StatusAction.extension, StatusAction.name, null, ROOT).refetch()
+  const container = renderSolid(() => <Chip />)
+  await settle()
+  flush()
+  expect(container.querySelector('[data-mcp="failed"]')).not.toBeNull()
+  const chip = agent.snapshot().find((item) => item.label === 'MCP servers')
+  await agent.act({ steps: [{ ref: chip!.ref, action: 'setOpen', args: [true] }] })
+  await expectDistinctAgentNames(agent)
+  const signIn = agent.snapshot().find((item) => item.label === 'Sign in course')
+  expect(signIn?.confirm).toBe("opens the server's sign-in page for the user")
+  expect(container.textContent).toContain('signed out')
+})
+
+it('finishes a sign-in the redirect brought back to the page, as the app, and cleans the URL', async ({
+  onTestFinished,
+}) => {
+  harness.servers = [
+    { name: 'course', source: 'project', state: 'connected', transport: 'http', tools: 3 },
+  ]
+  history.replaceState(
+    null,
+    '',
+    '/?conversation=7&mcp-oauth=course&code=c1&state=s1&iss=https%3A%2F%2Fhq.example',
+  )
+  onTestFinished(() => history.replaceState(null, '', '/'))
+  renderSolid(() => <SignInReturn />)
+  await settle()
+  await vi.waitFor(() =>
+    expect(harness.requests.map((request) => request.name)).toContain('completeSignIn'),
+  )
+  expect(harness.requests.find((request) => request.name === 'completeSignIn')).toEqual({
+    name: 'completeSignIn',
+    args: {
+      name: 'course',
+      url: `${location.origin}/?conversation=7&mcp-oauth=course&code=c1&state=s1&iss=https%3A%2F%2Fhq.example`,
+    },
+    source: 'app',
+  })
+  expect(location.search).toBe('?conversation=7')
 })

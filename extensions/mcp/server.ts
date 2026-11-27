@@ -14,18 +14,33 @@ import {
   toLlmContent,
 } from '@earendil-works/pi-mcp'
 import type { Tool } from '@earendil-works/pi-mcp'
+import {
+  completeMcpSignIn,
+  createMcpAuthProvider,
+  McpOAuthAuthorizationRequiredError,
+  responseFromRedirectUrl,
+  startMcpSignIn,
+} from '@earendil-works/pi-mcp/oauth'
+import type {
+  McpAuthProvider,
+  McpSignInOptions,
+  McpSignInRedirect,
+  OAuthChallenge,
+} from '@earendil-works/pi-mcp/oauth'
 import { implementAction } from '../../lib/actions.ts'
 import { readSecret } from '../../lib/secrets.ts'
 import { retryAfter, type Cancel } from '../../lib/timers.ts'
 import { readSettings, userSettingsPath } from '../../lib/settings.ts'
 import type { ExtensionAction } from '../../server/actions.ts'
 import type { ExtensionHost } from '../../server/extensions.ts'
-import { ReconnectAction, StatusAction } from './refs.ts'
+import { CompleteSignInAction, ReconnectAction, SignInAction, StatusAction } from './refs.ts'
+import { oauthStore } from './oauth.ts'
 import type { McpServerStatus } from './refs.ts'
 import { rebuiltOnOpen } from '../../lib/errors.ts'
 
 export const reloadOnSettings = true
 export const pollActions = ['status']
+export const userActions = ['signIn', 'completeSignIn']
 
 const PROGRESS_RENEWED_CALL_TIMEOUT_MS = 10 * 60_000
 const FIRST_RETRY = 5_000
@@ -39,6 +54,8 @@ type Entry =
 type Server = Omit<McpServerStatus, 'tools'> & {
   entry?: Entry
   client?: McpClient
+  auth?: McpAuthProvider
+  challenge?: OAuthChallenge
   tools: Tool[]
   attempts: number
   cancelRetry?: Cancel
@@ -168,9 +185,42 @@ const schemaOf = (tool: Tool) => `${tool.name} input: ${JSON.stringify(tool.inpu
 const renewTimeoutOnProgress = () => {}
 const failure = (text: string) => ({ output: [{ type: 'text' as const, text }], isError: true })
 
+const sendsOwnAuthorization = (entry: Entry) =>
+  'url' in entry && Object.keys(entry.headers).some((name) => /^authorization$/i.test(name))
+
+const oauthUrl = (server: Server) => {
+  if (!server.entry || !('url' in server.entry) || sendsOwnAuthorization(server.entry))
+    throw new Error(`MCP server ${server.name} does not sign in with OAuth`)
+  if (server.entry.url.includes('${'))
+    throw new Error(`MCP server ${server.name}: OAuth needs a url without secrets`)
+  return server.entry.url
+}
+
+function redirectUrlFor(host: ExtensionHost, name: string, origin: unknown) {
+  if (typeof origin !== 'string') throw new Error('signIn: origin is required')
+  const page = new URL(origin)
+  const own = new URL(host.system().process.url)
+  const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(page.hostname)
+  const known =
+    page.origin === origin &&
+    ((loopback && page.port === own.port && page.protocol === own.protocol) ||
+      host.system().access.origins.includes(origin))
+  if (!known) throw new Error(`signIn: ${origin} is not an address of this Ultimate`)
+  const url = new URL('/', origin)
+  url.searchParams.set('mcp-oauth', name)
+  return url.href
+}
+
+type PendingSignIn = { options: McpSignInOptions; authorization: McpSignInRedirect }
+
 const views = new WeakMap<
   ExtensionHost,
-  { status(): McpServerStatus[]; reconnect(name: string): Promise<void> }
+  {
+    status(): McpServerStatus[]
+    reconnect(name: string): Promise<void>
+    signIn(name: string, origin: unknown): Promise<{ url?: string }>
+    completeSignIn(name: string, url: unknown): Promise<void>
+  }
 >()
 
 export const actions: Record<string, ExtensionAction> = {
@@ -182,11 +232,55 @@ export const actions: Record<string, ExtensionAction> = {
     await view.reconnect(name)
     return view.status()
   }),
+  signIn: implementAction(SignInAction, async (args, { host }) => {
+    const view = views.get(host)
+    const name = isObject(args) ? args.name : undefined
+    if (!view || typeof name !== 'string') throw new Error('signIn: name is required')
+    return view.signIn(name, isObject(args) ? args.origin : undefined)
+  }),
+  completeSignIn: implementAction(CompleteSignInAction, async (args, { host }) => {
+    const view = views.get(host)
+    const name = isObject(args) ? args.name : undefined
+    if (!view || typeof name !== 'string') throw new Error('completeSignIn: name is required')
+    await view.completeSignIn(name, isObject(args) ? args.url : undefined)
+    return view.status()
+  }),
 }
 
 export default async function mcp(host: ExtensionHost) {
   const servers = await configured(host)
+  const pendingSignIns = host.resource('mcp.signins', () => new Map<string, PendingSignIn>())
   let closed = false
+
+  function needsSignIn(server: Server) {
+    server.client = undefined
+    server.state = 'signin'
+    server.attempts = 0
+  }
+
+  function authFor(server: Server, entry: Entry) {
+    delete server.challenge
+    if (!('url' in entry) || sendsOwnAuthorization(entry)) return undefined
+    return (server.auth = createMcpAuthProvider({
+      serverUrl: entry.url,
+      store: oauthStore(host.userHome, entry.url),
+      settings: () => ({}),
+      clientName: 'Ultimate',
+      onChallenge: (challenge) => (server.challenge = challenge),
+    }))
+  }
+
+  function signInOptions(server: Server, redirectUrl: string): McpSignInOptions {
+    const serverUrl = oauthUrl(server)
+    return {
+      serverUrl,
+      store: oauthStore(host.userHome, serverUrl),
+      settings: {},
+      clientName: 'Ultimate',
+      redirectUrl,
+      ...(server.challenge ? { challenge: server.challenge } : {}),
+    }
+  }
 
   function fail(server: Server, error: string) {
     server.client = undefined
@@ -223,11 +317,13 @@ export default async function mcp(host: ExtensionHost) {
     })
     let stdio: StdioTransport | undefined
     try {
+      const authProvider = authFor(server, entry)
       const transport =
         'url' in entry
           ? new StreamableHttpTransport({
               url: await expandLiteralSecrets(host.userHome, entry.url, found),
               headers: await expandAll(host.userHome, entry.headers, found),
+              ...(authProvider ? { authProvider } : {}),
             })
           : (stdio = new StdioTransport({
               command: entry.command,
@@ -258,11 +354,19 @@ export default async function mcp(host: ExtensionHost) {
       server.attempts = 0
     } catch (error) {
       if (closed || server.client !== client) return
+      const oauth = error instanceof McpOAuthAuthorizationRequiredError
+      if (oauth && server.challenge?.resourceMetadataUrl) {
+        needsSignIn(server)
+        await close(client)
+        return
+      }
       if (error instanceof MissingSecret) server.missing = error.secret
       const stderr = stdio?.stderr.trim().split('\n').at(-1)
       fail(
         server,
-        [redact(server, error), stderr && redact(server, stderr)].filter(Boolean).join(': '),
+        oauth
+          ? 'Unauthorized (HTTP 401) without an OAuth challenge: add credentials in headers'
+          : [redact(server, error), stderr && redact(server, stderr)].filter(Boolean).join(': '),
       )
       await close(client)
     }
@@ -317,11 +421,40 @@ export default async function mcp(host: ExtensionHost) {
         ...(server.retryAt ? { retryAt: server.retryAt } : {}),
       })),
     async reconnect(name) {
-      const server = servers.get(name)
-      if (!server) throw new Error(`No MCP server named ${name}`)
+      await restart(named(name))
+    },
+    async signIn(name, origin) {
+      const server = named(name)
+      const options = signInOptions(server, redirectUrlFor(host, name, origin))
+      const started = await startMcpSignIn(options)
+      if (started.kind === 'authorized') {
+        await restart(server)
+        return {}
+      }
+      pendingSignIns.set(name, { options, authorization: started })
+      return { url: started.authorizationUrl }
+    },
+    async completeSignIn(name, url) {
+      const server = named(name)
+      const pending = pendingSignIns.get(name)
+      if (!pending) throw new Error(`The sign-in to ${name} expired: press Sign in again`)
+      if (typeof url !== 'string') throw new Error('completeSignIn: url is required')
+      const response = responseFromRedirectUrl(url, pending.authorization)
+      pendingSignIns.delete(name)
+      await completeMcpSignIn({
+        ...pending.options,
+        authorization: pending.authorization,
+        response,
+      })
       await restart(server)
     },
   })
+
+  function named(name: string) {
+    const server = servers.get(name)
+    if (!server) throw new Error(`No MCP server named ${name}`)
+    return server
+  }
 
   let started = false
   host.onOpen(async () => {
@@ -333,7 +466,12 @@ export default async function mcp(host: ExtensionHost) {
   host.onClose(async () => {
     closed = true
     for (const server of servers.values()) server.cancelRetry?.()
-    await Promise.all([...servers.values()].map((server) => close(server.client)))
+    await Promise.all(
+      [...servers.values()].map(async (server) => {
+        await server.auth?.settled()
+        await close(server.client)
+      }),
+    )
   })
 
   const names = [...servers.keys()]
@@ -361,6 +499,10 @@ export default async function mcp(host: ExtensionHost) {
               if (!server)
                 return failure(`No MCP server named ${name}. Configured: ${names.join(', ')}`)
               await server.connectionQueueTail
+              if (server.state === 'signin')
+                return failure(
+                  `MCP server ${name} needs a sign-in: ask the user to press Sign in ${name} on the mcp chip in the status line`,
+                )
               if (server.state !== 'connected' || !server.client)
                 return failure(
                   `MCP server ${name} is ${server.state}: ${server.error ?? 'not connected'}`,

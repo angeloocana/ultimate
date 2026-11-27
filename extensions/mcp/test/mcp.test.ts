@@ -122,6 +122,7 @@ it('connects configured servers, lists and calls their tools, and isolates a fai
     userHome: root,
     projectRoot: root,
     projectSettings: async () => ({}),
+    resource: <T>(_key: string, create: () => T) => create(),
     onOpen: (callback: () => Promise<void>) => void callback(),
     onClose: (callback: () => Promise<void>) => closers.push(callback),
   } as unknown as ExtensionHost
@@ -182,6 +183,7 @@ it('declares each ${NAME} of the configured servers as a secret, missing until i
   const host = {
     userHome: root,
     projectRoot: root,
+    resource: <T>(_key: string, create: () => T) => create(),
     projectSettings: async () => ({
       mcpServers: { tool: { command: 'x', env: { KEY: '${CF_ACCESS_CLIENT_ID}' } } },
     }),
