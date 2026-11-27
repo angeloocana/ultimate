@@ -6,8 +6,8 @@ import { inExtensionTests } from '../shared/extension-api.ts'
 import { fileURLToPath } from 'node:url'
 import { createHash } from 'node:crypto'
 import { exec } from '../lib/exec.ts'
-import { inProcess, ignoring, isMissing } from '../lib/errors.ts'
-import { debounce } from '../lib/timers.ts'
+import { inProcess, ignoring, isMissing } from '../lib/errors.shared.ts'
+import { debounce } from '../lib/timers.shared.ts'
 import { writeTextAtomically } from '../lib/json-file.ts'
 import { discoverExtensions, webFacet } from '../lib/discovery.ts'
 import { discoveryRoots } from '../lib/project-paths.ts'
@@ -80,8 +80,8 @@ export async function createWeb(options: {
   userHome: string
   home: string
   watch: Watch
-  before: () => Promise<boolean>
-  coreCurrent: () => boolean
+  before: () => Promise<unknown>
+  held: () => boolean
   pages: () => number
   changed: () => void
   notice: (message: string) => void
@@ -184,6 +184,10 @@ export async function createWeb(options: {
     const brokenFolders: string[] = []
     let result: WebBuildResult
     for (;;) {
+      if (options.held()) {
+        stale = true
+        return
+      }
       const request: WebBuildRequest = {
         ultimateRoot,
         projectRoot,
@@ -225,11 +229,6 @@ export async function createWeb(options: {
       if ((await stat(full)).isFile())
         allFileNamesAndContentsHash.update(file + '\0').update(await readFile(full))
     }
-    if (!options.coreCurrent()) {
-      await rm(outDir, { recursive: true, force: true })
-      stale = true
-      return
-    }
     const id = allFileNamesAndContentsHash.digest('hex').slice(0, 12)
     const bundlePath = join(folder, id)
     const identicalBundleExists = await stat(bundlePath).then(
@@ -257,6 +256,10 @@ export async function createWeb(options: {
       broken: brokenFolders,
       retired: {},
     }
+    if (options.held()) {
+      stale = true
+      return
+    }
     const switched = manifest?.id !== id
     if (manifest && switched) retired.set(manifest.id, Date.now())
     retired.delete(id)
@@ -282,7 +285,8 @@ export async function createWeb(options: {
       try {
         await mkdir(folder, { recursive: true })
         while (stale && !closing.signal.aborted) {
-          if (!(await options.before())) break
+          await options.before()
+          if (options.held()) break
           stale = false
           changedFiles = [...pending]
           pending = new Set()
@@ -379,8 +383,13 @@ export async function createWeb(options: {
       if (options.pages() > 0 || building) await buildUntilFreshSerially()
     },
     async handle(request: IncomingMessage, response: ServerResponse) {
-      if (!manifest || (stale && options.coreCurrent())) await buildUntilFreshSerially()
+      if (stale || !manifest) await buildUntilFreshSerially()
       const bundleForEntireRequest = manifest
+      if (!bundleForEntireRequest && options.held()) {
+        response.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '5' })
+        response.end('Ultimate is restarting onto a new core; reload in a moment.')
+        return
+      }
       if (!bundleForEntireRequest) {
         response.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
         response.end('The web UI did not build; the notices name the error.')

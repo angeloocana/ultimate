@@ -29,14 +29,14 @@ import type {
 } from '@earendil-works/pi-mcp/oauth'
 import { implementAction } from '../../lib/actions.ts'
 import { readSecret } from '../../lib/secrets.ts'
-import { retryAfter, type Cancel } from '../../lib/timers.ts'
+import { retryAfter, type Cancel } from '../../lib/timers.shared.ts'
 import { readSettings, userSettingsPath } from '../../lib/settings.ts'
 import type { ExtensionAction } from '../../server/actions.ts'
 import type { ExtensionHost } from '../../server/extensions.ts'
 import { CompleteSignInAction, ReconnectAction, SignInAction, StatusAction } from './refs.ts'
 import { oauthStore } from './oauth.ts'
 import type { McpServerStatus } from './refs.ts'
-import { rebuiltOnOpen } from '../../lib/errors.ts'
+import { rebuiltOnOpen } from '../../lib/errors.shared.ts'
 
 export const reloadOnSettings = true
 export const pollActions = ['status']

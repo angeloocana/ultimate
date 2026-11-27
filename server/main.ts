@@ -16,8 +16,8 @@ import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
 import type { ChildMessage, SupervisorMessage } from './supervisor-protocol.ts'
 
 import { alive } from '../lib/lock.ts'
-import { inProcess } from '../lib/errors.ts'
-import { every } from '../lib/timers.ts'
+import { inProcess } from '../lib/errors.shared.ts'
+import { every } from '../lib/timers.shared.ts'
 import { realpath } from 'node:fs/promises'
 import { extensionModules } from './vite-extensions.ts'
 import { createWeb } from './web.ts'
@@ -188,8 +188,8 @@ export async function prepareServer(options: Partial<ServerOptions> = {}) {
     userHome: host.userHome,
     home: host.home,
     watch,
-    before: () => extensions.prepareLoad(),
-    coreCurrent: () => extensions.coreCurrent(),
+    before: () => extensions.prepareLoadBestEffort(),
+    held: extensions.heldForNewCore,
     pages: () => api?.pages() ?? 0,
     changed: () => void system?.changed(),
     notice: (message) => notice({ level: 'error', message }),
@@ -255,7 +255,8 @@ export async function prepareServer(options: Partial<ServerOptions> = {}) {
     go: (activationError?: string) =>
       serial(async () => {
         processInfo.activationError = activationError
-        const served = await openExtensionsThenServeApi(await host.open(false))
+        const swappedIn = !!process.env.ULTIMATE_PREVIOUS_BUILD && activationError === undefined
+        const served = await openExtensionsThenServeApi(await host.open(false, swappedIn))
         reportCore({ type: 'web', state: 'ready' })
         return served
       }),
@@ -297,6 +298,18 @@ if (process.argv[1] && resolvePath(process.argv[1]) === fileURLToPath(import.met
     )
   }
   let server: Awaited<ReturnType<typeof prepareServer>> | undefined
+  const exitWhenStorageFails = ({ harness }: OpenHost) => {
+    inProcess(
+      'a failed Harness ends this process; the supervisor starts a new core',
+      harness.closed.then((end) => {
+        if (end.kind !== 'failed') return
+        const text = `Storage failed, so the Harness closed; exiting for a fresh core: ${String(end.error)}`
+        console.error(text)
+        reportCore({ type: 'log', level: 'error', source: 'core', text })
+        process.exit(1)
+      }),
+    )
+  }
   let sharedTeardown: Promise<void> | undefined
   const close = () => (sharedTeardown ??= Promise.resolve(server?.close()))
   const shutdown = () => {
@@ -328,7 +341,9 @@ if (process.argv[1] && resolvePath(process.argv[1]) === fileURLToPath(import.met
           'the supervisor message controls this process lifecycle',
           (async () => {
             if (message.type === 'go' || message.type === 'reacquire') {
-              await server!.go(message.type === 'reacquire' ? message.error : undefined)
+              exitWhenStorageFails(
+                await server!.go(message.type === 'reacquire' ? message.error : undefined),
+              )
               send({ type: 'ready' })
               server!.extensions.serving()
             }
@@ -358,7 +373,7 @@ if (process.argv[1] && resolvePath(process.argv[1]) === fileURLToPath(import.met
     process.on('SIGINT', shutdown)
     process.on('SIGTERM', shutdown)
     server = await prepareServer()
-    await server.go()
+    exitWhenStorageFails(await server.go())
     console.log(`Ultimate: ${server.url}`)
   }
 }

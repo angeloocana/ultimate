@@ -12,12 +12,13 @@ import type { ConversationId, Tx } from '@earendil-works/pi-durable'
 import { BACKGROUND_CONTEXT as context } from '@earendil-works/chord/context'
 import { actingAs } from '../../lib/acting-as.ts'
 import { implementAction } from '../../lib/actions.ts'
-import { dueStatus, isCalendarDay, localDay } from '../../lib/calendar-day.ts'
+import { dueStatus, isCalendarDay, localDay } from '../../lib/calendar-day.shared.ts'
 import type { ExtensionHost } from '../../server/extensions.ts'
 import { Standing } from '../subagents/api.ts'
 import { TodosApi } from './api.ts'
 import { AddAction, DoneAction, ReopenAction, TodosDoc, UpdateAction } from './refs.ts'
 import type { AddTodoArgs, Todo, TodoPriority, UpdateTodoArgs } from './refs.ts'
+import { checkpointEvery } from '../../shared/checkpoint.ts'
 
 export const DONE_LIMIT = 50
 const TEXT_CHARS = 300
@@ -26,7 +27,7 @@ const KEY_CHARS = 200
 
 export const Todos = defineDoc<{ next: number; items: Todo[] }>({
   kind: TodosDoc.kind,
-  checkpointWhen: () => false,
+  checkpointWhen: checkpointEvery(100),
   version: 1,
   scope: 'conversation',
   history: 'latest',
@@ -35,7 +36,7 @@ export const Todos = defineDoc<{ next: number; items: Todo[] }>({
 })
 const LastOpenListCommittedWithInput = defineDoc<{ key?: string }>({
   kind: 'todos.seen',
-  checkpointWhen: () => false,
+  checkpointWhen: checkpointEvery(100),
   version: 1,
   scope: 'conversation',
   history: 'latest',
@@ -44,7 +45,7 @@ const LastOpenListCommittedWithInput = defineDoc<{ key?: string }>({
 })
 const OldestFirstIdempotencyReceipts = defineDoc<{ keys: { key: string; todo: Todo }[] }>({
   kind: 'todos.keys',
-  checkpointWhen: () => false,
+  checkpointWhen: checkpointEvery(100),
   version: 1,
   scope: 'conversation',
   history: 'latest',
@@ -98,20 +99,32 @@ export async function add(tx: Tx, input: Untrusted<AddTodoArgs>): Promise<Todo> 
   if (!owner) throw new Error("owner must be 'user' or 'ultimate'")
   const priority = validPriority(input.priority)
   const due = validDue(input.due)
-  const todos = await tx.doc(Todos, ROOT_CONVERSATION_ID)
-  const todo: Todo = {
-    id: todos.next++,
+  const todo = await append(tx, {
     text,
     owner,
-    at: Date.now(),
     ...(priority === undefined ? {} : { priority }),
     ...(due === undefined ? {} : { due }),
-  }
-  todos.items.push(todo)
+  })
   if (receipts && typeof key === 'string') {
     receipts.keys.push({ key, todo: copyTodoBeyondTransaction(todo) })
     receipts.keys.splice(0, receipts.keys.length - KEY_LIMIT)
   }
+  return todo
+}
+
+type CarriedTodo = Pick<Todo, 'text' | 'owner' | 'priority' | 'due'>
+
+async function append(tx: Tx, item: CarriedTodo): Promise<Todo> {
+  const todos = await tx.doc(Todos, ROOT_CONVERSATION_ID)
+  const todo: Todo = {
+    id: todos.next++,
+    text: item.text,
+    owner: item.owner,
+    at: Date.now(),
+    ...(item.priority === undefined ? {} : { priority: item.priority }),
+    ...(item.due === undefined ? {} : { due: item.due }),
+  }
+  todos.items.push(todo)
   return copyTodoBeyondTransaction(todo)
 }
 
@@ -224,6 +237,11 @@ const callerIsUltimate = (tx: Tx, id: ConversationId) =>
 export default function todosExtension(host: ExtensionHost) {
   host.implement(TodosApi, {
     add: (input) => host.harness().commit((tx) => add(tx, input), context),
+    listOpen: async (tx) =>
+      (await tx.doc(Todos, ROOT_CONVERSATION_ID)).items
+        .filter((item) => item.done === undefined)
+        .map(({ text, owner, priority, due }) => ({ text, owner, priority, due })),
+    addCarried: append,
   })
   return defineExtension({
     name: 'todos',

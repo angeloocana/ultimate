@@ -1,7 +1,7 @@
 import { createMemo, createRoot, createSignal, onSettled, Show } from 'solid-js'
 import { ROOT, keepLast, prettyName, useAction, usePageVisible } from '@/sdk/solid'
-import { deadline } from '../../lib/timers.ts'
-import { destination, shownPort } from './links.ts'
+import { deadline } from '../../lib/timers.shared.ts'
+import { destination, shownPort } from './links.web.ts'
 import { ListAction } from './refs.ts'
 import type { RunningProject } from './refs.ts'
 

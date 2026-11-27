@@ -26,7 +26,7 @@ import {
   writingAs,
 } from '@/sdk/solid'
 import { ConversationRef } from '../conversations/ui.solid.tsx'
-import { withContext } from './items.ts'
+import { withContext } from './items.web.ts'
 import { FollowUpsDoc, FollowUpStatusAction, SubmitFollowUpAction } from './refs.ts'
 import type { FollowUpReceipt } from './refs.ts'
 

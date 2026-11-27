@@ -19,11 +19,11 @@ import {
   writingAs,
   type Point,
 } from '@/sdk/solid'
-import { deadline } from '../../lib/timers.ts'
-import type { Cancel } from '../../lib/timers.ts'
+import { deadline } from '../../lib/timers.shared.ts'
+import type { Cancel } from '../../lib/timers.shared.ts'
 import { MessagesDoc } from '../messages/refs.ts'
-import { keyCard, openQuestions, waitsOnUser } from './open.ts'
-import type { Message } from './open.ts'
+import { keyCard, openQuestions, waitsOnUser } from './open.web.ts'
+import type { Message } from './open.web.ts'
 import type { EntryRecord } from '@earendil-works/pi-durable'
 import { QuestionItem } from './question.solid.tsx'
 import { AnswerAction, DismissAction } from './refs.ts'
@@ -39,8 +39,8 @@ import {
   choiceForKey,
   choices,
   keyOf,
-} from './state.ts'
-import type { CardState, Draft } from './state.ts'
+} from './state.web.ts'
+import type { CardState, Draft } from './state.web.ts'
 
 const CHECK_LANDING_BEFORE_ADVANCE_MS = 320
 

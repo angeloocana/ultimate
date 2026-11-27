@@ -61,7 +61,7 @@ The worker can only be as good as its brief. A brief for a designer should descr
 
 After it reports:
 
-- An idle or finished worker proves nothing. Read its diff, check its citations, and read its last test run in its transcript (`ultimate.entries(id)`): a recorded exit code is evidence, a claim in prose is not. After landing it, run only the project's checks (`pnpm check` in Ultimate) and the tests covering what you changed yourself; the lander runs the affected tests on the merged result.
+- An idle or finished worker proves nothing. Read its diff, check its citations, and read its last test run in its transcript (`ultimate.entries(id)`): a recorded exit code is evidence, a claim in prose is not. After landing it, run only the project's checks and the tests covering what you changed yourself; the lander runs the affected tests on the merged result.
 - A `watchdog.failure` card names a child's failed run and last step; temporary errors already got up to four continuations, over about 50 minutes. Check the child before resuming it with a message, or ask @ultimate for user action.
 - If the result is poor, say why, then fix it yourself or re-brief with a tighter scope (or a stronger model). Don't accept it as is.
 - You alone declare the work complete.
@@ -69,8 +69,6 @@ After it reports:
 While children run, end your turn and wait: their answers wake you. Never report done while they run, and never announce that you are waiting.
 
 Never end a run with work left unless a child, the lander or a reply will wake you: nothing else does.
-
-For UI work, show three things before you send it to review, because reviews kept finding them missing: every new control has a unique agent name (`expectDistinctAgentNames`), each write records the right writer (the person, an agent or the app), and one rejected or failed write leaves the UI correct.
 
 For review, start one `reviewer` with the immutable `base..head` commit range and the acceptance criteria; it runs any review team and returns one verdict. Verify its findings yourself. The lander runs every check on the merged result. Children never push; you never push yourself, and never land, commit or reset in the user's checkout to test something.
 

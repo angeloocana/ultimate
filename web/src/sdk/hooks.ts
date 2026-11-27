@@ -28,8 +28,8 @@ import type { ActionRef, DocRef } from '../../../shared/extension-api.ts'
 import { docRef } from '../../../shared/extension-api.ts'
 import { EVENT_FEED } from '../../../shared/events.ts'
 import type { EventData, EventRecord, EventToken } from '../../../shared/events.ts'
-import { deadline, every } from '../../../lib/timers.ts'
-import type { Cancel } from '../../../lib/timers.ts'
+import { deadline, every } from '../../../lib/timers.shared.ts'
+import type { Cancel } from '../../../lib/timers.shared.ts'
 import { actions, allCommands, regionKeys, regionOpenOn, shellKeys } from './actions.ts'
 import type { Region } from './actions.ts'
 import type { CommandItem, ExtensionRecord } from './registry.ts'
@@ -159,7 +159,7 @@ export { overlays } from './viewport.ts'
 export { covered } from './resume.ts'
 /** A transcript's shared frame: its entries and scroll elements, for the contributions it renders. */
 export { createTranscriptFrame } from './transcript-frame.ts'
-export { keepLast } from '../../../lib/errors.ts'
+export { keepLast } from '../../../lib/errors.shared.ts'
 export { cn } from 'cn'
 /** The transcript's and composer's reading column classes, for a card that sits in that column. */
 export { column } from '../app/layout.ts'
@@ -355,8 +355,11 @@ export function useAction<Args, T>(
   const scope = useContext(ConversationScope)
   const scoped = options.conversation ?? scope
   const read = createMemo(() => {
-    const { view, requested } = state()
-    const conversation = scoped ?? view?.conversation.id ?? requested ?? ROOT
+    let conversation = scoped
+    if (conversation == null) {
+      const { view, requested } = state()
+      conversation = view?.conversation.id ?? requested ?? ROOT
+    }
     return reads.get(ref.extension, ref.name, args, conversation)
   })
   const [current, setCurrent] = createSignal<ReadState>(() => read().get())

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest'
-import { destination, onLoopback, shownPort, target } from '../links.ts'
+import { destination, onLoopback, shownPort, target } from '../links.web.ts'
 import type { RunningProject } from '../refs.ts'
 
 const published: RunningProject = {

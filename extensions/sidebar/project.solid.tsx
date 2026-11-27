@@ -21,7 +21,7 @@ import {
 import { MEMORY_SURFACE, useOpenMemory } from '../lineage/ui.solid.tsx'
 import type { GithubRepo } from '../workspaces/refs.ts'
 import { useProjectRepo } from '../workspaces/ui.solid.tsx'
-import { ProjectSwitch } from './points.ts'
+import { ProjectSwitch } from './points.web.ts'
 import { useMemorySummary } from './root.solid.tsx'
 import { shell, useSidebarState, useSurface } from './state.solid.tsx'
 import { ProjectSwatch, RepoLabel } from './ui.solid.tsx'

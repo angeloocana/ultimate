@@ -4,7 +4,7 @@ import { constants } from 'node:fs'
 import { join } from 'node:path'
 import { McpRefreshLockBusyError } from '@earendil-works/pi-mcp/oauth'
 import type { McpOAuthServerStore, McpOAuthState } from '@earendil-works/pi-mcp/oauth'
-import { isMissing, sqliteCode } from '../../lib/errors.ts'
+import { isMissing, sqliteCode } from '../../lib/errors.shared.ts'
 import { writeJson } from '../../lib/json-file.ts'
 import { acquireLock } from '../../lib/lock.ts'
 

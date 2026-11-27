@@ -4,7 +4,7 @@ import { renderSolid } from '../../../../test/web/solid-dom-setup.ts'
 import { PromptBox } from '@/sdk/solid'
 import type { DictationSink } from '@/sdk/solid'
 import { registry } from '../../../../web/src/sdk/client.ts'
-import { capture } from '../../capture.ts'
+import { capture } from '../../capture.web.ts'
 import { DictationShortcuts, setFallback, setTalkMode } from '../../routing.solid.tsx'
 import dictation from '../../web.solid.tsx'
 
@@ -14,7 +14,12 @@ vi.mock('../../../../web/src/sdk/client.ts', async () => {
   const { createReads } = await import('../../../../web/src/sdk/reads.ts')
   const { createRegistry } = await import('../../../../web/src/sdk/registry.ts')
   const { createUiState } = await import('../../../../web/src/sdk/ui-state.ts')
-  const fetch = async () => Response.json({ result: { available: true } })
+  const settings = { talk: 'tap', shortcut: 'mod+shift+space', cues: true }
+  const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const action = (input as string).split('/').at(-1)
+    if (action === 'setSettings') Object.assign(settings, JSON.parse(init?.body as string).args)
+    return Response.json({ result: action?.endsWith('ettings') ? settings : { available: true } })
+  }
   const store = createStore({ fetch })
   const api = createApi(store, { fetch })
   return {

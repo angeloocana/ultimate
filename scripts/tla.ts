@@ -4,7 +4,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
-import { meansNone } from '../lib/errors.ts'
+import { meansNone } from '../lib/errors.shared.ts'
 
 const TLC = {
   version: '1.7.4',

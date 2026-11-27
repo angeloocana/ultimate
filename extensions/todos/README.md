@@ -6,10 +6,10 @@ with tasks and reviews, use `plan`.
 ## State
 
 The `todos` document on conversation 1 (conversation scope, latest history, initial on fork) holds
-`{ next, items: [{ id, text, owner: 'user' | 'ultimate', at, done?, priority?, due? }] }`, oldest first. Text is
-trimmed, nonempty and at most 300 characters. Priority is `high`, `normal` (the default), or `low`. A due date is a
-calendar day (`YYYY-MM-DD`); old items have no deadline. Ticking keeps the newest 50 done items and drops older ones;
-open items are never dropped.
+`{ next, items: [{ id, text, owner: 'user' | 'ultimate', at, done?, priority?, due? }] }`, oldest first. New user
+and agent to-dos are trimmed, nonempty and at most 300 characters; chapter seeds can carry longer text, such as open
+questions. Priority is `high`, `normal` (the default), or `low`. A due date is a calendar day (`YYYY-MM-DD`); old items
+have no deadline. Ticking keeps the newest 50 done items and drops older ones; open items are never dropped.
 
 ## Agents
 
