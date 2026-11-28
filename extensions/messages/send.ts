@@ -61,7 +61,6 @@ export async function send(
     steer?: boolean
     re?: number
     images?: ImagesRef
-    imagesFrom?: ConversationId
     dismiss?: boolean
     questions?: Question[]
   },
@@ -80,6 +79,7 @@ export async function send(
     judged?: Judged
     stillReports?: (tx: Tx) => Promise<boolean>
     serveBranch?: true
+    informs?: () => Promise<boolean>
   } = {},
 ) {
   const { taskId, callId, requestId, answerId, device, via } = options
@@ -112,6 +112,7 @@ export async function send(
       `Subagents report to the conversation that started them: message only #${parent}. Your final answer reaches it anyway.`,
     )
   const to = await resolveRecipient(host, input.to, from, ctx)
+  const informs = (await options.informs?.()) ?? false
   const fromLabel = via
     ? `user (settled for them by @ultimate, from what they said in its chat)`
     : await senderName(host, from, ctx)
@@ -144,7 +145,7 @@ export async function send(
     if (input.images !== undefined) {
       if (from === 'user')
         throw new Error('your images go along with what you submit, not with a message')
-      images = await resolveImages(tx, input.imagesFrom ?? from, input.images)
+      images = await resolveImages(tx, from, input.images)
     }
 
     if (from === 'user' && input.re !== undefined)
@@ -205,7 +206,7 @@ export async function send(
       from,
       to,
       text: input.text,
-      reply: input.reply ?? true,
+      reply: !informs && (input.reply ?? true),
       state: to === 'user' ? 'delivered' : 'sent',
       ...(re === undefined ? {} : { re }),
       ...(callId === undefined ? {} : { call: callId }),

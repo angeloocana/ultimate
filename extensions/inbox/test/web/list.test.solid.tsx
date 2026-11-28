@@ -89,11 +89,15 @@ it('records the agent picking a same-title item and navigates in visible order',
       source: 'agent',
     },
   ])
-  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k' }))
-  flush()
+  const press = (key: string) =>
+    document.body.dispatchEvent(
+      new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
+    )
+  press('k')
+  await settle()
   expect(current()?.getAttribute('data-inbox-row')).toBe('task:12')
-  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }))
-  flush()
+  press('j')
+  await settle()
   expect(current()?.getAttribute('data-inbox-row')).toBe('13')
   await uiState.flush()
 })

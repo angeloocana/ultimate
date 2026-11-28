@@ -22,14 +22,14 @@ import type { ExtensionHost } from '../../server/extensions.ts'
 import { Branches, WorkspacesApi } from '../workspaces/api.ts'
 import { Standing, SubagentsApi } from '../subagents/api.ts'
 import { LineageApi, Replies } from '../lineage/api.ts'
-import { Judgements, Messages, MessagesApi } from './api.ts'
+import { Judgements, Messages, MessagesApi, MessageSent } from './api.ts'
 import { gist, openQuestion, openQuestionsNote, questionsParameter } from './questions.ts'
 import { callerOf } from './caller.shared.ts'
+import { judge } from './judge.ts'
 import { CallerAction, SettleAction } from './refs.ts'
 import type { Via } from './refs.ts'
 import { implementAction } from '../../lib/actions.ts'
 import { isOwed } from '../../lib/message-state.shared.ts'
-import { actingAs } from '../../lib/acting-as.ts'
 import { imagesParameter, SCAN_PAGE } from './images.ts'
 import { owed, parentOf, Serving, Started, starterOf } from './addresses.ts'
 import { Concluded } from '../conversations/api.ts'
@@ -58,6 +58,8 @@ import {
 import { branchTool } from './branch.ts'
 import { remoteProgress } from './progress.ts'
 import { safeToRerun } from '../../lib/replay.ts'
+
+const EVENTS_PER_PAGE = 5000
 export { gist, openQuestionsNote } from './questions.ts'
 export const docs = [Messages, Started, Serving, Judgements]
 
@@ -186,11 +188,7 @@ export const actions = {
       throw new Error('dismiss must be a boolean')
     const ctx = BACKGROUND_CONTEXT
     const primary = (await host.harness().snapshot(Standing, ROOT_CONVERSATION_ID, ctx))?.ultimate
-    if (
-      conversationId === undefined ||
-      primary === undefined ||
-      (await actingAs(host, conversationId, ctx)) !== primary
-    )
+    if (conversationId === undefined || conversationId !== primary)
       throw new Error("Only @ultimate settles the user's questions")
     const log = await host.harness().snapshot(Messages, ROOT_CONVERSATION_ID, ctx)
     if (log?.messages.some((m) => m.id === messageId && m.to === 'remote')) {
@@ -271,6 +269,22 @@ export default function messages(host: ExtensionHost) {
           (m) => m.from === from && m.to === to && m.answer === entry,
         ),
       ),
+    messaged: async (from, after) => {
+      const found = new Set<ConversationId>()
+      for (let since = after; ;) {
+        const page = await host.eventLog.recent({
+          events: [MessageSent],
+          since,
+          order: 'ascending',
+          limit: EVENTS_PER_PAGE,
+        })
+        for (const { data } of page)
+          if (data.from === from && typeof data.to === 'number' && data.to !== from)
+            found.add(data.to)
+        if (page.length < EVENTS_PER_PAGE) return [...found]
+        since = page.at(-1)!.id
+      }
+    },
   })
   host.implement(MessagesApi, {
     answer: (messageId, text, ctx, device, call) =>
@@ -291,6 +305,50 @@ export default function messages(host: ExtensionHost) {
       submitOutput(host, tx, to, input, { kind: 'automation', id }, `automation ${id} "${name}"`),
     dropped: (tx, id, source, why) => dropped(host, tx, { kind: 'automation', id }, source, why),
   })
+  const observeRun = async (
+    conversationId: ConversationId,
+    generation: TaskId,
+    ctx: Context,
+    terminated = false,
+  ) => {
+    const harness = host.harness()
+    let by = (await harness.snapshot(Started, conversationId, ctx))?.by
+    const down =
+      by === undefined &&
+      (await harness.snapshot(Standing, ROOT_CONVERSATION_ID, ctx))?.ultimate === conversationId
+    if (down) by = conversationId
+    if (by === undefined || (down && terminated)) return
+    await harness.commit(async (tx) => {
+      const started = await tx.doc(Started, conversationId)
+      const generationObserverAlreadyCreated =
+        started.yielded !== undefined && started.yielded >= generation
+      if (generationObserverAlreadyCreated) return
+      if (!terminated) started.yielded = generation
+      const after = started.lastRoute
+      started.lastRoute = await tx.createTask(
+        route(host),
+        {
+          generation: generation as TaskId<GenerationResult>,
+          inputs: terminated
+            ? []
+            : [...((await tx.doc(LiveDoc, conversationId)).run?.inputs ?? [])],
+          by,
+          ...(down ? { down } : {}),
+          ...(after !== undefined ? { after } : {}),
+        },
+        {
+          ownership: { kind: 'conversation' },
+          conversationId,
+          background: true,
+        },
+      )
+    }, ctx)
+  }
+  const terminateRun = async (conversationId: ConversationId, ctx: Context) => {
+    const run = (await host.harness().snapshot(LiveDoc, conversationId, ctx))?.run
+    if (run) await observeRun(conversationId, run.taskId, ctx, true)
+    return { terminate: true as const }
+  }
   return defineExtension({
     name: 'messages',
     tasks: [delivery(host), route(host), settle(host), tellTask(host), remoteStatusTask(host)],
@@ -299,36 +357,7 @@ export default function messages(host: ExtensionHost) {
         // Pi upstream: @earendil-works/pi-durable@1.6.0 — patched transactional beforeInput hook.
         beforeInput: (_input, api) => openQuestionsNote(api.tx, api.conversationId, Date.now()),
         onYield: async (_answer, api, ctx) => {
-          let by = (await api.snapshot(Started, api.conversationId, ctx))?.by
-          const down =
-            by === undefined &&
-            (await api.snapshot(Standing, ROOT_CONVERSATION_ID, ctx))?.ultimate ===
-              api.conversationId
-          if (down) by = api.conversationId
-          if (by === undefined) return undefined
-          await host.harness().commit(async (tx) => {
-            const started = await tx.doc(Started, api.conversationId)
-            const generationObserverAlreadyCreated =
-              started.yielded !== undefined && started.yielded >= api.taskId
-            if (generationObserverAlreadyCreated) return
-            started.yielded = api.taskId
-            const after = started.lastRoute
-            started.lastRoute = await tx.createTask(
-              route(host),
-              {
-                generation: api.taskId as TaskId<GenerationResult>,
-                inputs: [...((await tx.doc(LiveDoc, api.conversationId)).run?.inputs ?? [])],
-                by,
-                ...(down ? { down } : {}),
-                ...(after !== undefined ? { after } : {}),
-              },
-              {
-                ownership: { kind: 'conversation' },
-                conversationId: api.conversationId,
-                background: true,
-              },
-            )
-          }, ctx)
+          await observeRun(api.conversationId, api.taskId, ctx)
           return undefined
         },
       }),
@@ -350,8 +379,7 @@ export default function messages(host: ExtensionHost) {
 
       section('projects', async (input, ctx) => {
         const standing = await host.harness().snapshot(Standing, ROOT_CONVERSATION_ID, ctx)
-        if (standing?.ultimate === (await actingAs(host, input.conversationId, ctx)))
-          return projectsSection(host)
+        if (standing?.ultimate === input.conversationId) return projectsSection(host)
         if (!input.agent.tools.some((tool) => tool.name === 'message')) return undefined
         if ((await parentOf(host, input.conversationId, ctx)) !== undefined) return undefined
         return 'To reach another project, ask @ultimate to relay.'
@@ -362,7 +390,7 @@ export default function messages(host: ExtensionHost) {
       defineTool({
         name: 'message',
         description:
-          'Send a message to #id or @name; it returns immediately. A busy recipient gets it after its current run, or during it with steer: true (the default for @ultimate). images forwards screenshots or other images from your conversation, to an agent or to the user. To an agent or the user whose message you owe an answer, it is that answer (with its images and questions). One to an agent ends your run; one to the user ends it too, unless an agent still waits for your answer or a branch whose reply or report you read in this run does. Sent from codemode or beside other calls in its tool round, it never ends the run.',
+          'Send a message to #id or @name; it does not wait for the recipient to answer. A busy recipient gets it after its current run, or during it with steer: true (the default for @ultimate). images forwards screenshots or other images from your conversation, to an agent or to the user. To the user without questions it is a report, one-way unless a quick check finds it clearly asks something. To an agent or the user whose message you owe an answer, it is that answer (with its images and questions). One to an agent ends your run; one to the user ends it too, unless an agent still waits for your answer or a branch whose reply or report you read in this run does. Sent from codemode or beside other calls in its tool round, it never ends the run.',
         parameters: obj({
           to: str(),
           text: str({ minLength: 1 }),
@@ -375,27 +403,37 @@ export default function messages(host: ExtensionHost) {
           'The task-scoped receipt deduplicates admission; the memo returns the same id on replay.',
         ),
         async execute(input, api, ctx) {
-          const toUserWithoutBorrowedPrivilege = input.to === 'user'
-          const from = toUserWithoutBorrowedPrivilege
-            ? api.conversationId
-            : await actingAs(host, api.conversationId, ctx)
+          const informs = async () => {
+            if (input.to !== 'user' || input.questions || input.reply === false) return false
+            const remembered = await api.memo<number>('asks', ctx)
+            if (remembered !== undefined) return remembered < 0.5
+            const askedBeforeACrash = await api.memo<true>('asking', ctx)
+            if (askedBeforeACrash) return true
+            await api.memo('asking', true, ctx)
+            const verdict = await judge(
+              host,
+              (service, signal) => service.asks(input.text, signal),
+              ctx.abortSignal ?? new AbortController().signal,
+            )
+            return (await api.memo('asks', 'p' in verdict ? verdict.p : 0, ctx)) < 0.5
+          }
           const id =
             (await api.memo<number>('message-id', ctx)) ??
             (await api.memo(
               'message-id',
               await send(
                 host,
-                from,
+                api.conversationId,
                 {
                   ...input,
                   images:
                     typeof input.images === 'number' ? parseEntryId(input.images) : input.images,
-                  imagesFrom: api.conversationId,
                 },
                 ctx,
                 {
                   taskId: api.taskId,
                   callId: api.callId,
+                  informs,
                 },
               ),
               ctx,
@@ -414,20 +452,8 @@ export default function messages(host: ExtensionHost) {
                   text: `Sent as your answer to message ${sent.re}.`,
                 },
               ],
-              control: { terminate: true as const },
+              control: await terminateRun(api.conversationId, ctx),
             }
-          if (from !== api.conversationId && input.reply !== false && sent) {
-            await host
-              .need(LineageApi)
-              .leaveNote(
-                from,
-                `Side chat #${api.conversationId} messaged #${sent.to} (reply comes here): ${input.text.split('\n')[0].slice(0, 160)}`,
-                {
-                  from: api.conversationId,
-                  requestId: `sidechat:message:${api.taskId}:${api.callId}`,
-                },
-              )
-          }
           if (input.to !== 'user')
             return { output: [{ type: 'text', text: `Message ${id} sent.` }] }
 
@@ -456,7 +482,7 @@ export default function messages(host: ExtensionHost) {
             )
           return {
             output: [{ type: 'text', text: `Message ${id} sent.` }],
-            ...(hasPendingReplies ? {} : { control: { terminate: true as const } }),
+            ...(hasPendingReplies ? {} : { control: await terminateRun(api.conversationId, ctx) }),
           }
         },
       }),

@@ -230,12 +230,7 @@ export default defineConfig({
         rules: { 'ultimate/api-only-imports': 'error', 'ultimate/declared-requires': 'error' },
       },
       {
-        files: [
-          'extensions/*/api.ts',
-          'extensions/*/refs.ts',
-          'extensions/*/ui.tsx',
-          'extensions/*/ui.solid.tsx',
-        ],
+        files: ['extensions/*/api.ts', 'extensions/*/refs.ts', 'extensions/*/ui.solid.tsx'],
         rules: { 'ultimate/api-file-shape': 'error', 'ultimate/api-naming': 'error' },
       },
       {

@@ -32,6 +32,7 @@ import {
 import { Applied, CheckAction, MergeAction, Refused, StateAction, UpdateAction } from './refs.ts'
 import type { UpdateResult, UpdateState } from './refs.ts'
 import { UpdateApi } from './api.ts'
+import { AutomationsApi } from '../automations/api.ts'
 
 export const TICK = 5 * 60_000
 
@@ -67,9 +68,11 @@ async function restartAfterCoreLanding(
   stale: () => Promise<boolean>,
 ) {
   if (!(await stale())) return
-  host.notice('Restarting: a landing changed the core')
-  host.notice(`Restart after landing failed: ${await host.restart(async () => {})}`)
+  const error = await host.restart(async () => {})
+  if (!swapAlreadyRunning(error)) host.notice(`Restart after landing failed: ${error}`)
 }
+
+const swapAlreadyRunning = (error: string) => error.startsWith('A core swap is already in progress')
 
 export const AUTO_RESTART_PAUSE = 10 * 60_000
 
@@ -90,7 +93,8 @@ export function restartOnStaleLoad(options: {
       if (!(await stale())) return
       await last.write(now())
       notice(`Restarting: ${name} failed to load after a core change`)
-      notice(`Automatic restart failed: ${await restart()}`)
+      const error = await restart()
+      if (!swapAlreadyRunning(error)) notice(`Automatic restart failed: ${error}`)
     })()
       .catch((error: unknown) => notice(`Automatic restart: ${String(error)}`))
       .finally(() => {
@@ -180,6 +184,18 @@ export default function update(host: ExtensionHost) {
   host.need(SubagentsApi)
   host.want(PauseApi)
   host.implement(UpdateApi, { state: () => locallyRefreshedState(host) })
+  const automations = host.need(AutomationsApi)
+  host.onOpen(async (opened) => {
+    opened.defer(
+      automations.trigger({ event: Applied, description: 'An update was applied', fields: {} }),
+    )
+    opened.defer(
+      automations.trigger({ event: Refused, description: 'An update was refused', fields: {} }),
+    )
+  })
+  host.react('automations', [Applied, Refused], (tx, event) => automations.matched(tx, event), {
+    from: { cursorOf: 'automations/events' },
+  })
   const shared = reloadSharedState(host)
   if (sharesHostCloneAsPreview()) return defineExtension({ name: 'update' })
   const lastFile = join(host.home, 'update-auto-restart.json')

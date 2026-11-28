@@ -18,6 +18,6 @@ export type InboxItem = {
 
 export const InboxItems = definePoint<null, InboxItem[] | undefined>('inbox.items')
 export const QuestionPane = definePoint<
-  { message: Message | undefined; phone: boolean },
+  { message: Message | undefined; phone: boolean; close: () => void },
   (() => JSX.Element) | undefined
 >('inbox.question-pane')

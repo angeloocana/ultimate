@@ -71,10 +71,15 @@ export const copies = new Map<string, string>()
 /** Run Ultimate for `project` (the clone itself by default) from the clone `ultimateRoot` (a fresh copy by default). */
 export async function launch(
   home: string,
-  { ultimateRoot: shared, project }: { ultimateRoot?: string; project?: string } = {},
+  {
+    ultimateRoot: shared,
+    project,
+    prepare,
+  }: { ultimateRoot?: string; project?: string; prepare?: (root: string) => Promise<void> } = {},
 ) {
   const ultimateRoot = shared ?? copies.get(home) ?? (await sourceCopy(home))
   copies.set(home, ultimateRoot)
+  await prepare?.(ultimateRoot)
   model ??= await scriptedModel(answer)
   // Pi locks files in its agent directory and waits 30 s before taking over a lock left by a SIGKILLed core, as long as
   // fixture() waits for a boot: each home gets its own copy, so one test's killed core cannot stall the next test's.

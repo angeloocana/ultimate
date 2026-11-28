@@ -6,8 +6,7 @@ import mcp, { actions, secrets } from '../server.ts'
 import { actions as secretActions } from '../../secrets/server.ts'
 import { writeSecret } from '../../secrets/store.ts'
 import type { McpServerStatus } from '../refs.ts'
-import type { ExtensionHost } from '../../../server/extensions.ts'
-import { removeTemp, temp, until } from '../../../test/helpers.ts'
+import { removeTemp, temp, until, createTestExtensionHost } from '../../../test/helpers.ts'
 
 const cleanup: (() => Promise<void>)[] = []
 afterEach(async () => {
@@ -118,14 +117,14 @@ it('connects configured servers, lists and calls their tools, and isolates a fai
     }),
   )
   const closers: (() => Promise<void>)[] = []
-  const host = {
+  const host = createTestExtensionHost({
     userHome: root,
     projectRoot: root,
     projectSettings: async () => ({}),
     resource: <T>(_key: string, create: () => T) => create(),
     onOpen: (callback: () => Promise<void>) => void callback(),
     onClose: (callback: () => Promise<void>) => closers.push(callback),
-  } as unknown as ExtensionHost
+  })
   const [tool] = (await mcp(host)).tools!
   cleanup.push(async () => {
     for (const close of closers) await close()
@@ -180,7 +179,7 @@ it('declares each ${NAME} of the configured servers as a secret, missing until i
     }),
   )
   const closers: (() => Promise<void>)[] = []
-  const host = {
+  const host = createTestExtensionHost({
     userHome: root,
     projectRoot: root,
     resource: <T>(_key: string, create: () => T) => create(),
@@ -190,7 +189,7 @@ it('declares each ${NAME} of the configured servers as a secret, missing until i
     onOpen: (callback: () => Promise<void>) => void callback(),
     onClose: (callback: () => Promise<void>) => closers.push(callback),
     modelRuntime: { getProviderAuthStatus: () => ({ configured: false }) },
-  } as unknown as ExtensionHost
+  })
   await mcp(host)
   cleanup.push(async () => {
     for (const close of closers) await close()

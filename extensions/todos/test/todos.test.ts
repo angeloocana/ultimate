@@ -4,8 +4,8 @@ import { compile } from '@earendil-works/pi-schema'
 import { expect, it, vi } from 'vitest'
 import todosExtension, { actions, add, DONE_LIMIT, mark, noteFor, Todos } from '../server.ts'
 import type { ActionContext } from '../../../server/actions.ts'
-import type { ExtensionHost } from '../../../server/extensions.ts'
 import type { TodosService } from '../api.ts'
+import { createTestExtensionHost } from '../../../test/helpers.ts'
 
 const ULTIMATE = 5 as ConversationId
 
@@ -52,10 +52,10 @@ it('adds to-dos by owner and refuses empty text or an unknown owner', async () =
 it('adds through TodosApi once per key, even after the to-do left the list', async () => {
   const { tx } = fakeTx()
   let service: TodosService | undefined
-  const host = {
+  const host = createTestExtensionHost({
     implement: (_api: unknown, value: TodosService) => (service = value),
     harness: () => ({ commit: (fn: (tx: Tx) => unknown) => fn(tx) }),
-  } as unknown as ExtensionHost
+  })
   todosExtension(host)
   const fields = { text: 'Call back', owner: 'user', priority: 'high', due: '2028-02-29' } as const
   const first = await service!.add({ ...fields, key: 'mail-42' })
@@ -72,9 +72,9 @@ it('adds through TodosApi once per key, even after the to-do left the list', asy
 
 it('adds and edits through user actions, clearing the due date without changing ownership', async () => {
   const { tx } = fakeTx()
-  const host = {
+  const host = createTestExtensionHost({
     harness: () => ({ commit: (fn: (tx: Tx) => unknown) => fn(tx) }),
-  } as unknown as ExtensionHost
+  })
   const ctx = { host } as ActionContext
   const fields = { text: 'Ship it', owner: 'user', priority: 'normal', due: '2026-11-23' }
   const added = await actions.add(fields, ctx)
@@ -147,11 +147,7 @@ it('updates the open note at local midnight on the due day and the next day only
 
 it("keeps the todo tool to @ultimate and the note to @ultimate's inputs", async () => {
   const { tx } = fakeTx()
-  // No side-chat extension installed: every caller acts as itself.
-  const extension = todosExtension({
-    doc: () => undefined,
-    implement: () => {},
-  } as unknown as ExtensionHost)
+  const extension = todosExtension(createTestExtensionHost({ implement: () => {} }))
   const tool = extension.tools!.find((candidate) => candidate.name === 'todo')!
   const run = (conversationId: number, args: object) =>
     tool.execute(
