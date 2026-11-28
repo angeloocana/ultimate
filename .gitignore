@@ -8,3 +8,5 @@ dist/
 .dev.vars
 .wrangler/
 cloud/wrangler.deploy.json
+
+.ultimate/spare-dispatch-off
