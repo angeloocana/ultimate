@@ -5,9 +5,9 @@ description: Model-check how a branch's final answers reach its starter (board.r
 
 # Verify branch reports
 
-**The property:** a branch's answers reach its starter in answer order, each once, and a report wakes the starter only
-while nothing of the branch is under way; once the branch is idle, its last word reported unless the judge called it
-back-and-forth with the user.
+**The property:** sends to the starter preserve answer order, and each route sends at most once. A send is marked
+as a wake-up report only if the branch is idle at the send. After all inputs and routes finish, the last send, if
+any, is a report unless the judge called it back-and-forth with the user.
 
 **The harm when it breaks:** @ultimate acts on an older answer after a newer one (it happened three times in review
 of one feature: `f05a2cbf`, `0c993799`, fixed for good by `f3c4c3da`), or wakes for a branch that is still working.
@@ -17,32 +17,36 @@ of one feature: `f05a2cbf`, `0c993799`, fixed for good by `f3c4c3da`), or wakes 
 The model is `extensions/messages/test/model/BranchReports.tla`. Each action is one durable step in the code (a commit,
 or a memo with the call it guards):
 
-| Action                        | Code                                                                                           |
-| ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| `RunYields`                   | `server.ts` `onYield`: creates `board.route` with `after: started.lastRoute`, run still live   |
-| `RunEnds`                     | the generation task settles, which phase `observe` waits on; the inbox moves on                |
-| `RouteAnswered`               | `route.ts` phase `answered`: note, judge, `promoteLastNote` or nothing, in one commit          |
-| `JudgeAsked` / `JudgeAnswers` | `route.ts` phase `judge`: memo `asked` and the call, then memo `judged` with its verdict       |
-| `JudgeInterrupted`            | `route.ts` phase `judge` rerun that finds `asked` without `judged`: `{ error: 'interrupted' }` |
-| `JudgeCommitted`              | `route.ts` phase `judge`: the commit of `Judgements` and the `forward` checkpoint              |
-| `Send`                        | `send.ts` `send`: the append transaction, its `ConversationRequestReceipts` and `stillReports` |
-| `Complete`                    | `route.ts` phase `forward`: the terminal commit                                                |
-| `Restart`                     | the host closes: in-process judge calls are lost, commits stay                                 |
+| Action                        | Code                                                                                            |
+| ----------------------------- | ----------------------------------------------------------------------------------------------- |
+| `RunYields`                   | `server.ts` `onYield` calls `observeRun`: creates `board.route` with `after: started.lastRoute` |
+| `RunEnds`                     | the generation task settles, which phase `observe` waits on; the inbox moves on                 |
+| `RouteAnswered`               | `route.ts` phase `answered`: note, judge, `promoteLastNote` or `landed` if there is no send     |
+| `JudgeAsked` / `JudgeAnswers` | `route.ts` phase `judge`: memo `asked`, call through `judge.ts`, memo `judged` with the verdict |
+| `JudgeInterrupted`            | `route.ts` phase `judge` rerun that finds `asked` without `judged`: `{ error: 'interrupted' }`  |
+| `JudgeCommitted`              | `route.ts` phase `judge`: the commit of `Judgements` and the `forward` checkpoint               |
+| `Send`                        | `send.ts` `send`: the append transaction, its `ConversationRequestReceipts` and `stillReports`  |
+| `Forwarded`                   | `route.ts` phase `forward`: commits the `landed` checkpoint after sending                       |
+| `Complete`                    | `route.ts` phase `landed`: the terminal commit that releases the next route's `after` wait      |
+| `Restart`                     | the host closes: in-process judge calls are lost, commits stay                                  |
 
-`Busy` stands for `concludedOrWorkUnderway` in `route.ts` (run, queued input, open reply-expected messages). The model
-counts conclusion and landing as busy, as the code does, and does not model them separately.
+`Busy` represents the run and queued inputs in `concludedOrWorkUnderway` in `route.ts`. The code also checks for
+conclusion, a pending landing, reply-expected messages, pending wake tasks and busy subagents. Phase `landed` can wait
+for delivery placement before calling `WorkspacesApi.settleLanded`. The model represents the checkpoint and terminal
+commit, not the workspace settlement or its delivery guards.
 
-**Last checked:** the commit that adds this skill, on top of `7931aa6b` (`git log -1 --format=%h -- .ultimate/skills/verify-branch-reports/SKILL.md`).
-If `git diff <that commit> -- extensions/messages/route.ts extensions/messages/send.ts extensions/messages/server.ts`
-touches the rows above, read the model again before trusting a pass. Move this line forward only after you have
-confirmed that each row still matches the code at the new commit.
+**Last checked:** `601561aa3e300849b78b550be4e71f05fa22b0ae`.
+If `git diff <that commit> -- extensions/messages/{route,send,server,judge}.ts` touches the rows above, read the
+model again before trusting a pass. Move this line forward only after you have confirmed that each row still
+matches the code at the new commit.
 
 ## Bounds and what is left out
 
 One branch, three inputs (two from the user whose answers are work updates, one reply-expected message from a
 sibling), in any arrival order, one run at a time, at most one restart; the judge answers "report" or "note", or is
-interrupted. About 4,700 states, a few seconds. Left out: concluding and landing as separate events, answers routed
-back down from @ultimate, remote delivery, the 10 s judge timeout (a verdict like any other), and the judge's text.
+interrupted. About 6,100 states, a few seconds. Left out: concluding and landing as separate events, tool-ended
+runs (`terminateRun` also creates a route but captures no inputs), answers routed down from @ultimate, delivery
+after the send transaction, the 10 s judge timeout, and the judge's text.
 
 ## Run it
 

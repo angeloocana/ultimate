@@ -10,11 +10,11 @@
 (* the host may restart at any point.                                      *)
 (*                                                                         *)
 (* Each action is one commit, or one memo plus the call it guards:         *)
-(*   RunYields         server.ts onYield: creates board.route with         *)
-(*                     after = started.lastRoute while the run is live     *)
+(*   RunYields         server.ts onYield calls observeRun to create        *)
+(*                     board.route with after = started.lastRoute         *)
 (*   RunEnds           the generation task settles; the inbox moves on     *)
-(*   RouteAnswered     route.ts phase 'answered': one commit that picks    *)
-(*                     note, judge, promotion of the last note, or nothing *)
+(*   RouteAnswered     route.ts phase 'answered': picks note, judge,       *)
+(*                     promotion of the last note, or 'landed' if no send  *)
 (*   JudgeAsked        route.ts phase 'judge': memo 'asked', then the call *)
 (*   JudgeAnswers      the call returns: memo 'judged'                     *)
 (*   JudgeInterrupted  a rerun that finds 'asked' without 'judged':        *)
@@ -24,7 +24,8 @@
 (*   Send              send.ts: the append transaction, with its           *)
 (*                     ConversationRequestReceipts check and, for a        *)
 (*                     report, stillReports (the busy check)               *)
-(*   Complete          route.ts phase 'forward': the terminal commit       *)
+(*   Forwarded         route.ts phase 'forward': commits 'landed'          *)
+(*   Complete          route.ts phase 'landed': the terminal commit        *)
 (*   Restart           in-process judge calls are lost; commits stay       *)
 (*                                                                         *)
 (* UsePredecessor = FALSE removes `after`, as before f3c4c3da: TLC then    *)
@@ -35,9 +36,9 @@
 (* CheckEveryReport = FALSE runs stillReports only for judged reports, as  *)
 (* before this model found it: a promoted note then woke a busy starter.   *)
 (*                                                                         *)
-(* Left out: concluding and landing (they count like busy in the code),    *)
-(* answers routed back down from @ultimate, remote delivery and the judge  *)
-(* timeout (it yields a verdict like any other).                           *)
+(* Left out: landing and conclusion, including delivery placement and     *)
+(* workspace settlement inside 'landed'; extra routes from terminateRun;  *)
+(* answers routed down from @ultimate; remote delivery; judge timeouts.   *)
 (***************************************************************************)
 EXTENDS Naturals, Sequences
 
@@ -56,7 +57,7 @@ VARIABLES
     nroutes,   \* routes created so far; route r carries answer r
     kind,      \* "work" or "sibling", by the input the answer settled
     after,     \* the route it waits for (started.lastRoute), 0 for none
-    phase,     \* None, "observe", "judge", "forward" or "done"
+    phase,     \* None, "observe", "judge", "forward", "landed" or "done"
     out,       \* what phase 'forward' sends to the starter
     asked,     \* memo 'asked'
     verdict,   \* memo 'judged': None, "report", "note" or "error"
@@ -146,7 +147,7 @@ RouteAnswered(r) ==
             THEN /\ phase' = [phase EXCEPT ![r] = "forward"]
                  /\ out' = [out EXCEPT ![r] = [content |-> Last(log).content, report |-> TRUE,
                                                judged |-> Last(log).judged]]
-            ELSE /\ phase' = [phase EXCEPT ![r] = "done"]
+            ELSE /\ phase' = [phase EXCEPT ![r] = "landed"]
                  /\ UNCHANGED out
     /\ UNCHANGED <<arrived, queue, running, yielded, nroutes, kind, after, asked, verdict,
                    inflight, sent, log, restarts>>
@@ -195,9 +196,15 @@ Send(r) ==
     /\ UNCHANGED <<arrived, queue, running, yielded, nroutes, kind, after, phase, out, asked,
                    verdict, inflight, restarts>>
 
-Complete(r) ==
+Forwarded(r) ==
     /\ phase[r] = "forward"
     /\ sent[r]
+    /\ phase' = [phase EXCEPT ![r] = "landed"]
+    /\ UNCHANGED <<arrived, queue, running, yielded, nroutes, kind, after, out, asked,
+                   verdict, inflight, sent, log, restarts>>
+
+Complete(r) ==
+    /\ phase[r] = "landed"
     /\ phase' = [phase EXCEPT ![r] = "done"]
     /\ UNCHANGED <<arrived, queue, running, yielded, nroutes, kind, after, out, asked,
                    verdict, inflight, sent, log, restarts>>
@@ -228,6 +235,7 @@ Next ==
         \/ JudgeInterrupted(r)
         \/ JudgeCommitted(r)
         \/ Send(r)
+        \/ Forwarded(r)
         \/ Complete(r)
     \/ Restart
     \/ Done
@@ -239,7 +247,7 @@ Spec == Init /\ [][Next]_vars
 AnswersInOrder ==
     \A i, j \in 1..Len(log) : i < j => log[i].content <= log[j].content
 
-\* A restart never sends an answer twice.
+\* A restart never lets the same route send twice.
 SentOnce ==
     \A i, j \in 1..Len(log) : i # j => log[i].route # log[j].route
 

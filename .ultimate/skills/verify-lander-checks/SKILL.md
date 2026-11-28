@@ -33,8 +33,7 @@ task starts a submission, so a replacement task (after an abort) checks its own 
 resumes in `land` and keeps them. The model covers the restart, not the replacement. A landing in flight when this code first ran reads its
 older memos once (`outcomeMemoizedBeforeUpgrade`); the model does not cover that one-time path.
 
-**Last checked:** the commit that adds this skill, on top of `9d04104c`
-(`git log -1 --format=%h -- .ultimate/skills/verify-lander-checks/SKILL.md`). If
+**Last checked:** `601561aa3e300849b78b550be4e71f05fa22b0ae`. If
 `git diff <that commit> -- extensions/workspaces/lander.ts extensions/workspaces/types.ts` touches the rows above,
 read the model again before trusting a pass. Move this line forward only after you have confirmed that each row still
 matches the code at the new commit.
